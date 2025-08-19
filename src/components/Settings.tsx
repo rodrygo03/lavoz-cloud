@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { 
@@ -19,6 +20,7 @@ interface SettingsProps {
 }
 
 export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
+  const location = useLocation();
   const [editedProfile, setEditedProfile] = useState<Profile | null>(null);
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [activeTab, setActiveTab] = useState<'general' | 'sources' | 'advanced' | 'schedule'>('general');
@@ -32,14 +34,45 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
     }
   }, [profile]);
 
+  useEffect(() => {
+    // Check URL parameters to set the active tab
+    const searchParams = new URLSearchParams(location.search);
+    const tab = searchParams.get('tab');
+    if (tab && ['general', 'sources', 'advanced', 'schedule'].includes(tab)) {
+      setActiveTab(tab as 'general' | 'sources' | 'advanced' | 'schedule');
+    }
+  }, [location.search]);
+
   const loadSchedule = async () => {
     if (!profile) return;
+    
+    console.log('=== LOADING SCHEDULE ===');
+    console.log('Profile ID:', profile.id);
     
     try {
       const scheduleData = await invoke<Schedule | null>('get_schedule_status', {
         profileId: profile.id
       });
-      setSchedule(scheduleData);
+      
+      console.log('Raw schedule data from backend:', scheduleData);
+      
+      // If no schedule exists, create a default one
+      if (!scheduleData) {
+        const defaultSchedule: Schedule = {
+          enabled: false,
+          frequency: { Daily: null },
+          time: "02:00",
+          last_run: undefined,
+          next_run: undefined
+        };
+        setSchedule(defaultSchedule);
+        console.log('No schedule found, using default schedule:', defaultSchedule);
+      } else {
+        setSchedule(scheduleData);
+        console.log('Loaded schedule from backend:', scheduleData);
+        console.log('Schedule time field:', scheduleData.time);
+        console.log('Schedule next_run field:', scheduleData.next_run);
+      }
     } catch (error) {
       console.error('Failed to load schedule:', error);
     }
@@ -110,18 +143,31 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
   const saveSchedule = async () => {
     if (!profile || !schedule) return;
 
+    console.log('=== SAVING SCHEDULE ===');
+    console.log('Profile ID:', profile.id);
+    console.log('Schedule object:', JSON.stringify(schedule, null, 2));
+    console.log('Schedule time field:', schedule.time);
+    
     try {
       if (schedule.enabled) {
-        await invoke('schedule_backup', {
+        console.log('Enabling schedule backup');
+        const response = await invoke('schedule_backup', {
           profileId: profile.id,
           schedule
         });
+        console.log('Schedule backup response:', response);
+        console.log('Schedule backup enabled successfully');
       } else {
+        console.log('Disabling schedule backup');
         await invoke('unschedule_backup', {
           profileId: profile.id
         });
+        console.log('Schedule backup disabled successfully');
       }
       alert('Schedule updated successfully!');
+      
+      console.log('Reloading schedule to check next_run...');
+      await loadSchedule(); // Reload to get updated next_run time
     } catch (error) {
       console.error('Failed to save schedule:', error);
       alert('Failed to save schedule: ' + error);
@@ -159,6 +205,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
       console.error('Failed to open file dialog:', error);
     }
   };
+
 
   const autoConfigureRclone = async () => {
     if (!profile) return;
@@ -457,78 +504,146 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
               <h2>Backup Schedule</h2>
               <p>Configure automatic backup scheduling.</p>
 
-              {schedule && (
-                <div className="schedule-settings">
-                  <div className="form-group">
-                    <label className="checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={schedule.enabled}
-                        onChange={(e) => setSchedule(prev => 
-                          prev ? { ...prev, enabled: e.target.checked } : null
-                        )}
-                      />
-                      <span>Enable automatic backups</span>
-                    </label>
-                  </div>
-
-                  {schedule.enabled && (
-                    <>
-                      <div className="form-group">
-                        <label>Frequency</label>
-                        <select
-                          value={
-                            typeof schedule.frequency === 'object' && 'Daily' in schedule.frequency ? 'daily' :
-                            typeof schedule.frequency === 'object' && 'Weekly' in schedule.frequency ? 'weekly' :
-                            'monthly'
-                          }
-                          onChange={(e) => {
-                            let newFreq: ScheduleFrequency;
-                            switch (e.target.value) {
-                              case 'daily':
-                                newFreq = { Daily: null };
-                                break;
-                              case 'weekly':
-                                newFreq = { Weekly: 1 }; // Monday
-                                break;
-                              case 'monthly':
-                                newFreq = { Monthly: 1 };
-                                break;
-                              default:
-                                newFreq = { Daily: null };
-                            }
-                            setSchedule(prev => prev ? { ...prev, frequency: newFreq } : null);
-                          }}
-                        >
-                          <option value="daily">Daily</option>
-                          <option value="weekly">Weekly</option>
-                          <option value="monthly">Monthly</option>
-                        </select>
-                      </div>
-
-                      <div className="form-group">
-                        <label htmlFor="schedule-time">Time</label>
-                        <input
-                          id="schedule-time"
-                          type="time"
-                          value={schedule.time}
-                          onChange={(e) => setSchedule(prev => 
-                            prev ? { ...prev, time: e.target.value } : null
-                          )}
-                        />
-                      </div>
-
-                      <button 
-                        className="btn btn-primary"
-                        onClick={saveSchedule}
-                      >
-                        <Save size={16} />
-                        Save Schedule
-                      </button>
-                    </>
-                  )}
+              <div className="schedule-settings">
+                <div className="form-group">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={schedule?.enabled || false}
+                      onChange={(e) => {
+                        if (!schedule) {
+                          const newSchedule: Schedule = {
+                            enabled: e.target.checked,
+                            frequency: { Daily: null },
+                            time: "02:00",
+                            last_run: undefined,
+                            next_run: undefined
+                          };
+                          setSchedule(newSchedule);
+                        } else {
+                          setSchedule(prev => prev ? { ...prev, enabled: e.target.checked } : null);
+                        }
+                      }}
+                    />
+                    <span>Enable automatic backups</span>
+                  </label>
                 </div>
-              )}
+
+                <div className="form-group">
+                  <label>Frequency</label>
+                  <select
+                    value={
+                      schedule && typeof schedule.frequency === 'object' && 'Daily' in schedule.frequency ? 'daily' :
+                      schedule && typeof schedule.frequency === 'object' && 'Weekly' in schedule.frequency ? 'weekly' :
+                      'daily'
+                    }
+                    onChange={(e) => {
+                      let newFreq: ScheduleFrequency;
+                      switch (e.target.value) {
+                        case 'daily':
+                          newFreq = { Daily: null };
+                          break;
+                        case 'weekly':
+                          newFreq = { Weekly: 1 }; // Monday
+                          break;
+                        case 'monthly':
+                          newFreq = { Monthly: 1 };
+                          break;
+                        default:
+                          newFreq = { Daily: null };
+                      }
+                      if (!schedule) {
+                        const newSchedule: Schedule = {
+                          enabled: false,
+                          frequency: newFreq,
+                          time: "02:00",
+                          last_run: undefined,
+                          next_run: undefined
+                        };
+                        setSchedule(newSchedule);
+                      } else {
+                        setSchedule(prev => prev ? { ...prev, frequency: newFreq } : null);
+                      }
+                    }}
+                  >
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="schedule-time">Backup Time (24-hour format)</label>
+                  <div className="time-input-group">
+                    <input
+                      id="schedule-time-hour"
+                      type="number"
+                      min="0"
+                      max="23"
+                      value={parseInt((schedule?.time || "02:00").split(':')[0])}
+                      onChange={(e) => {
+                        const hour = Math.max(0, Math.min(23, parseInt(e.target.value) || 0));
+                        const minute = (schedule?.time || "02:00").split(':')[1] || "00";
+                        const newTime = `${hour.toString().padStart(2, '0')}:${minute}`;
+                        console.log('Hour changed, new time:', newTime);
+                        
+                        if (!schedule) {
+                          const newSchedule: Schedule = {
+                            enabled: false,
+                            frequency: { Daily: null },
+                            time: newTime,
+                            last_run: undefined,
+                            next_run: undefined
+                          };
+                          setSchedule(newSchedule);
+                        } else {
+                          setSchedule(prev => prev ? { ...prev, time: newTime } : null);
+                        }
+                      }}
+                      className="time-input hour"
+                    />
+                    <span className="time-separator">:</span>
+                    <input
+                      id="schedule-time-minute"
+                      type="number"
+                      min="0"
+                      max="59"
+                      step="1"
+                      value={parseInt((schedule?.time || "02:00").split(':')[1])}
+                      onChange={(e) => {
+                        const minute = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
+                        const hour = (schedule?.time || "02:00").split(':')[0] || "02";
+                        const newTime = `${hour}:${minute.toString().padStart(2, '0')}`;
+                        console.log('Minute changed, new time:', newTime);
+                        
+                        if (!schedule) {
+                          const newSchedule: Schedule = {
+                            enabled: false,
+                            frequency: { Daily: null },
+                            time: newTime,
+                            last_run: undefined,
+                            next_run: undefined
+                          };
+                          setSchedule(newSchedule);
+                        } else {
+                          setSchedule(prev => prev ? { ...prev, time: newTime } : null);
+                        }
+                      }}
+                      className="time-input minute"
+                    />
+                  </div>
+                  <small className="help-text">Enter time in 24-hour format: 0-23 hours, 0-59 minutes (e.g., 14:30 for 2:30 PM, 22:45 for 10:45 PM)</small>
+                </div>
+
+                <button 
+                  className="btn btn-primary"
+                  onClick={saveSchedule}
+                  disabled={!schedule}
+                >
+                  <Save size={16} />
+                  Save Schedule
+                </button>
+              </div>
             </div>
           )}
         </div>

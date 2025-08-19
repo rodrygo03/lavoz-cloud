@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { 
   Play, 
@@ -8,7 +9,8 @@ import {
   AlertTriangle,
   FileText,
   Calendar,
-  Activity
+  Activity,
+  Settings as SettingsIcon
 } from 'lucide-react';
 import { Profile, BackupOperation, BackupPreview, Schedule } from '../types';
 
@@ -18,6 +20,7 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ profile }: DashboardProps) {
+  const navigate = useNavigate();
   const [lastBackup, setLastBackup] = useState<BackupOperation | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [preview, setPreview] = useState<BackupPreview | null>(null);
@@ -27,6 +30,22 @@ export default function Dashboard({ profile }: DashboardProps) {
 
   useEffect(() => {
     if (profile) {
+      loadDashboardData();
+    }
+  }, [profile]);
+
+  // Reload data whenever Dashboard component mounts or becomes the active route
+  useEffect(() => {
+    if (profile) {
+      console.log('Dashboard component mounted/activated, loading data...');
+      loadDashboardData();
+    }
+  }, []); // Run on every mount
+
+  // Also reload when profile changes
+  useEffect(() => {
+    if (profile) {
+      console.log('Profile changed, reloading dashboard data...');
       loadDashboardData();
     }
   }, [profile]);
@@ -48,6 +67,7 @@ export default function Dashboard({ profile }: DashboardProps) {
       const scheduleStatus = await invoke<Schedule | null>('get_schedule_status', {
         profileId: profile.id
       });
+      console.log('Dashboard loaded schedule:', scheduleStatus);
       setSchedule(scheduleStatus);
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
@@ -57,21 +77,31 @@ export default function Dashboard({ profile }: DashboardProps) {
   const runBackup = async () => {
     if (!profile || isRunning) return;
 
+    console.log(`Starting backup for profile: ${profile.name}`);
     setIsRunning(true);
+    setLogs('Starting backup...\n');
+    
     try {
+      console.log('Invoking backup_run command');
       const operation = await invoke<BackupOperation>('backup_run', {
         profile,
         dryRun: false
       });
       
+      console.log('Backup operation result:', operation);
       setLastBackup(operation);
       setLogs(operation.log_output);
       
-      if (operation.status === 'Failed') {
+      if (operation.status === 'Completed') {
+        console.log('Backup completed successfully');
+        alert('Backup completed successfully!');
+      } else if (operation.status === 'Failed') {
+        console.error('Backup failed:', operation.error_message);
         alert(`Backup failed: ${operation.error_message}`);
       }
     } catch (error) {
       console.error('Backup failed:', error);
+      setLogs(prev => prev + `\nError: ${error}\n`);
       alert('Backup failed: ' + error);
     } finally {
       setIsRunning(false);
@@ -81,10 +111,13 @@ export default function Dashboard({ profile }: DashboardProps) {
   const runPreview = async () => {
     if (!profile) return;
 
+    console.log(`Starting preview for profile: ${profile.name}`);
     try {
+      console.log('Invoking backup_preview command');
       const previewResult = await invoke<BackupPreview>('backup_preview', {
         profile
       });
+      console.log('Preview result:', previewResult);
       setPreview(previewResult);
       setShowPreview(true);
     } catch (error) {
@@ -120,6 +153,14 @@ export default function Dashboard({ profile }: DashboardProps) {
 
   const formatDate = (dateString: string): string => {
     return new Date(dateString).toLocaleString();
+  };
+
+  const formatTime12Hour = (time24: string): string => {
+    const [hours, minutes] = time24.split(':');
+    const hour24 = parseInt(hours);
+    const hour12 = hour24 === 0 ? 12 : hour24 > 12 ? hour24 - 12 : hour24;
+    const period = hour24 >= 12 ? 'PM' : 'AM';
+    return `${hour12}:${minutes} ${period}`;
   };
 
   if (!profile) {
@@ -257,19 +298,30 @@ export default function Dashboard({ profile }: DashboardProps) {
                     {typeof schedule.frequency === 'object' && 'Monthly' in schedule.frequency && 
                       `Monthly (${schedule.frequency.Monthly}th)`}
                   </div>
-                  <div className="schedule-time">at {schedule.time}</div>
+                  <div className="schedule-time">at {formatTime12Hour(schedule.time)}</div>
                 </div>
                 {schedule.next_run && (
                   <div className="next-run">
                     Next run: {formatDate(schedule.next_run)}
                   </div>
                 )}
+                <button 
+                  className="btn btn-secondary btn-small"
+                  onClick={() => navigate('/settings?tab=schedule')}
+                >
+                  <SettingsIcon size={14} />
+                  Change Schedule
+                </button>
               </div>
             ) : (
               <div className="empty-state-small">
                 <Calendar size={24} />
                 <p>No schedule configured</p>
-                <button className="btn btn-secondary btn-small">
+                <button 
+                  className="btn btn-secondary btn-small"
+                  onClick={() => navigate('/settings?tab=schedule')}
+                >
+                  <SettingsIcon size={14} />
                   Set Schedule
                 </button>
               </div>

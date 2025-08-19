@@ -1895,3 +1895,79 @@ input.error {
 .security-note li {
   margin-bottom: 0.25rem;
 }
+
+/* Time input group styles */
+.time-input-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 200px;
+}
+
+.time-input {
+  padding: 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  text-align: center;
+  width: 3rem;
+}
+
+.time-input.hour {
+  width: 3rem;
+}
+
+.time-input.minute {
+  width: 3rem;
+}
+
+.time-separator {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.time-period {
+  padding: 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  width: 4rem;
+}
+
+.time-input:focus,
+.time-period:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgb(59 130 246 / 0.1);
+}
+
+.time-input::-webkit-outer-spin-button,
+.time-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.time-input[type=number] {
+  -moz-appearance: textfield;
+}
+
+/* 24-hour time input styles */
+.time-input-24 {
+  padding: 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  width: 7rem;
+}
+
+.time-input-24:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgb(59 130 246 / 0.1);
+}
