@@ -246,7 +246,30 @@ rm /tmp/bucket-policy.json
 # 6. Optional Lifecycle (optimization without deletion)
 if [ "$ENABLE_LIFECYCLE" = "true" ]; then
     echo "Setting up lifecycle policy..."
-    cat > /tmp/lifecycle.json << EOF
+    
+    # Check if Glacier transition should be included (999999 means never)
+    if [ "$DAYS_TO_GLACIER" -eq 999999 ]; then
+        # Only Standard-IA transition, no Glacier
+        cat > /tmp/lifecycle.json << EOF
+{{
+    "Rules": [
+        {{
+            "ID": "OptimizeStorage",
+            "Status": "Enabled",
+            "Filter": {{}},
+            "Transitions": [
+                {{
+                    "Days": $DAYS_TO_IA,
+                    "StorageClass": "STANDARD_IA"
+                }}
+            ]
+        }}
+    ]
+}}
+EOF
+    else
+        # Include both Standard-IA and Glacier transitions
+        cat > /tmp/lifecycle.json << EOF
 {{
     "Rules": [
         {{
@@ -267,6 +290,7 @@ if [ "$ENABLE_LIFECYCLE" = "true" ]; then
     ]
 }}
 EOF
+    fi
 
     aws s3api put-bucket-lifecycle-configuration \
         --bucket "$BUCKET" \

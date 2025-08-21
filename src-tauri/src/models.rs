@@ -158,6 +158,8 @@ pub enum ChangeAction {
 pub struct AppConfig {
     pub profiles: Vec<Profile>,
     pub active_profile_id: Option<String>,
+    #[serde(default)]
+    pub backup_operations: Vec<BackupOperation>,
     pub app_version: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -169,6 +171,7 @@ impl Default for AppConfig {
         Self {
             profiles: Vec::new(),
             active_profile_id: None,
+            backup_operations: Vec::new(),
             app_version: env!("CARGO_PKG_VERSION").to_string(),
             created_at: now,
             updated_at: now,

@@ -210,6 +210,141 @@ location_constraint = {}
 }
 
 #[command]
+pub async fn save_backup_operation(operation: crate::models::BackupOperation) -> Result<(), String> {
+    let mut config = load_config().await?;
+    
+    // Add the new operation to the beginning of the list (most recent first)
+    config.backup_operations.insert(0, operation);
+    
+    // Keep only the last 100 operations to avoid unlimited growth
+    if config.backup_operations.len() > 100 {
+        config.backup_operations.truncate(100);
+    }
+    
+    config.updated_at = chrono::Utc::now();
+    save_config(&config).await?;
+    Ok(())
+}
+
+#[command]
+pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, String> {
+    use std::fs;
+    use chrono::{Utc, TimeZone};
+    use regex::Regex;
+    
+    // Use the same log directory as the backup script: ~/.config/cloud-backup-app/logs/
+    let home_dir = dirs::home_dir().ok_or("Could not determine home directory")?;
+    let logs_dir = home_dir.join(".config/cloud-backup-app/logs");
+    let log_file = logs_dir.join(format!("backup-{}.log", profile_id));
+    
+    if !log_file.exists() {
+        return Ok(0); // No log file, no operations to sync
+    }
+    
+    let log_content = fs::read_to_string(&log_file).map_err(|e| e.to_string())?;
+    let mut operations_created = 0;
+    
+    // Parse the log file for backup operations
+    let start_regex = Regex::new(r"(\w{3} \w{3} \d{1,2} \d{2}:\d{2}:\d{2} \w{3} \d{4}): Starting backup for profile (.+)").unwrap();
+    let complete_regex = Regex::new(r"(\w{3} \w{3} \d{1,2} \d{2}:\d{2}:\d{2} \w{3} \d{4}): Backup completed for profile (.+)").unwrap();
+    let transferred_regex = Regex::new(r"Transferred:\s+(\d+) / (\d+), \d+%").unwrap();
+    let stats_regex = Regex::new(r"Transferred:\s+([0-9.,]+\s*[KMGT]?i?B) / ([0-9.,]+\s*[KMGT]?i?B)").unwrap();
+    
+    let lines: Vec<&str> = log_content.lines().collect();
+    let mut current_operation: Option<crate::models::BackupOperation> = None;
+    
+    for line in lines {
+        if let Some(caps) = start_regex.captures(line) {
+            let timestamp_str = &caps[1];
+            let profile_name = &caps[2];
+            
+            // Parse timestamp - format: "Wed Aug 20 00:22:05 CDT 2025"
+            // Remove timezone abbreviation and parse as local time
+            let time_parts: Vec<&str> = timestamp_str.split_whitespace().collect();
+            if time_parts.len() >= 6 {
+                // Format: ["Wed", "Aug", "20", "00:22:05", "CDT", "2025"]
+                // We want: "Aug 20 2025 00:22:05"
+                let date_time_str = format!("{} {} {} {}", time_parts[1], time_parts[2], time_parts[5], time_parts[3]);
+                if let Ok(start_time) = chrono::NaiveDateTime::parse_from_str(&date_time_str, "%b %d %Y %H:%M:%S") {
+                    let start_time_utc = Utc.from_utc_datetime(&start_time);
+                
+                current_operation = Some(crate::models::BackupOperation {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    profile_id: profile_id.clone(),
+                    operation_type: crate::models::OperationType::Backup,
+                    status: crate::models::OperationStatus::Running,
+                    started_at: start_time_utc,
+                    completed_at: None,
+                    files_transferred: 0,
+                    bytes_transferred: 0,
+                    error_message: None,
+                    log_output: format!("Scheduled backup started for profile: {}", profile_name),
+                });
+                }
+            }
+        } else if let Some(_caps) = complete_regex.captures(line) {
+            if let Some(ref mut op) = current_operation {
+                op.status = crate::models::OperationStatus::Completed;
+                op.completed_at = Some(Utc::now());
+                
+                // Save the operation
+                save_backup_operation(op.clone()).await?;
+                operations_created += 1;
+                current_operation = None;
+            }
+        } else if let Some(ref mut op) = current_operation {
+            // Accumulate log output
+            op.log_output.push_str(&format!("\n{}", line));
+            
+            // Try to parse file counts and byte counts from various rclone output lines
+            if line.contains("Transferred:") {
+                if let Some(caps) = transferred_regex.captures(line) {
+                    if let Ok(files) = caps[1].parse::<u64>() {
+                        op.files_transferred = files;
+                    }
+                }
+                if let Some(caps) = stats_regex.captures(line) {
+                    let bytes_str = &caps[2];
+                    if let Ok(bytes) = parse_byte_size(bytes_str) {
+                        op.bytes_transferred = bytes;
+                    }
+                }
+            }
+        }
+    }
+    
+    // If there's still an operation that wasn't completed, save it as well
+    if let Some(mut op) = current_operation {
+        op.status = crate::models::OperationStatus::Completed;
+        op.completed_at = Some(Utc::now());
+        save_backup_operation(op).await?;
+        operations_created += 1;
+    }
+    
+    Ok(operations_created)
+}
+
+fn parse_byte_size(size_str: &str) -> Result<u64, String> {
+    let size_str = size_str.replace(",", "").replace(" ", "");
+    
+    if size_str.ends_with("KiB") {
+        let num: f64 = size_str.trim_end_matches("KiB").parse().map_err(|e: std::num::ParseFloatError| e.to_string())?;
+        Ok((num * 1024.0) as u64)
+    } else if size_str.ends_with("MiB") {
+        let num: f64 = size_str.trim_end_matches("MiB").parse().map_err(|e: std::num::ParseFloatError| e.to_string())?;
+        Ok((num * 1024.0 * 1024.0) as u64)
+    } else if size_str.ends_with("GiB") {
+        let num: f64 = size_str.trim_end_matches("GiB").parse().map_err(|e: std::num::ParseFloatError| e.to_string())?;
+        Ok((num * 1024.0 * 1024.0 * 1024.0) as u64)
+    } else if size_str.ends_with("B") {
+        let num: u64 = size_str.trim_end_matches("B").parse().map_err(|e: std::num::ParseIntError| e.to_string())?;
+        Ok(num)
+    } else {
+        size_str.parse::<u64>().map_err(|e| e.to_string())
+    }
+}
+
+#[command]
 pub async fn auto_setup_rclone_complete(profile_id: String) -> Result<Profile, String> {
     // Get the profile to access AWS config
     let mut config = load_config().await?;

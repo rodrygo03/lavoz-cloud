@@ -3,9 +3,6 @@ import { invoke } from '@tauri-apps/api/core';
 import { 
   ArrowRight, 
   ArrowLeft, 
-  Cloud, 
-  Users,
-  Settings,
   CheckCircle,
   AlertCircle,
   Plus,
@@ -306,7 +303,7 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
                 id="admin-username"
                 type="text"
                 value={setupData.admin_username}
-                onChange={(e) => setSetupData(prev => ({ ...prev, admin_username: e.target.value }))}
+                onChange={(e) => setSetupData(prev => ({ ...prev, admin_username: e.target.value.toLowerCase() }))}
                 placeholder="backup-admin"
                 className={validationErrors.admin_username ? 'error' : ''}
               />
@@ -321,7 +318,7 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
                 id="bucket-name"
                 type="text"
                 value={setupData.bucket_name}
-                onChange={(e) => setSetupData(prev => ({ ...prev, bucket_name: e.target.value }))}
+                onChange={(e) => setSetupData(prev => ({ ...prev, bucket_name: e.target.value.toLowerCase() }))}
                 placeholder="my-company-backups"
                 className={validationErrors.bucket_name ? 'error' : ''}
               />
@@ -379,16 +376,22 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
 
                 <div className="form-group">
                   <label htmlFor="days-to-glacier">Days to Glacier</label>
-                  <input
+                  <select
                     id="days-to-glacier"
-                    type="number"
-                    min="1"
-                    value={setupData.lifecycle_config.days_to_glacier}
+                    value={setupData.lifecycle_config.days_to_glacier === 999999 ? 'never' : setupData.lifecycle_config.days_to_glacier.toString()}
                     onChange={(e) => setSetupData(prev => ({
                       ...prev,
-                      lifecycle_config: { ...prev.lifecycle_config, days_to_glacier: parseInt(e.target.value) }
+                      lifecycle_config: { 
+                        ...prev.lifecycle_config, 
+                        days_to_glacier: e.target.value === 'never' ? 999999 : parseInt(e.target.value) 
+                      }
                     }))}
-                  />
+                  >
+                    <option value="90">90 days</option>
+                    <option value="180">180 days</option>
+                    <option value="365">1 year</option>
+                    <option value="never">Never (Keep in Standard-IA)</option>
+                  </select>
                 </div>
               </div>
             )}
@@ -409,7 +412,7 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
                   <input
                     type="text"
                     value={employee}
-                    onChange={(e) => updateEmployee(index, e.target.value)}
+                    onChange={(e) => updateEmployee(index, e.target.value.toLowerCase())}
                     placeholder="Employee username (e.g., john-doe)"
                   />
                   <button
@@ -464,7 +467,7 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
               {setupData.lifecycle_config.enabled && (
                 <div className="sub-items">
                   <div>Standard-IA after {setupData.lifecycle_config.days_to_ia} days</div>
-                  <div>Glacier after {setupData.lifecycle_config.days_to_glacier} days</div>
+                  <div>Glacier: {setupData.lifecycle_config.days_to_glacier === 999999 ? 'Never' : `after ${setupData.lifecycle_config.days_to_glacier} days`}</div>
                 </div>
               )}
             </div>

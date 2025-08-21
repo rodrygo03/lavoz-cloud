@@ -10,7 +10,8 @@ import {
   Folder,
   Clock,
   Shield,
-  Zap
+  Zap,
+  CheckCircle
 } from 'lucide-react';
 import { Profile, Schedule, ScheduleFrequency, BackupMode } from '../types';
 
@@ -26,10 +27,13 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
   const [activeTab, setActiveTab] = useState<'general' | 'sources' | 'advanced' | 'schedule'>('general');
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [hasShownScheduleAlert, setHasShownScheduleAlert] = useState(false);
+  const [showScheduleNotification, setShowScheduleNotification] = useState(false);
 
   useEffect(() => {
     if (profile) {
       setEditedProfile({ ...profile });
+      setHasShownScheduleAlert(false); // Reset alert flag for new profile
       loadSchedule();
     }
   }, [profile]);
@@ -140,13 +144,16 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
     }
   };
 
-  const saveSchedule = async () => {
+  const saveSchedule = async (showAlert = true) => {
     if (!profile || !schedule) return;
 
     console.log('=== SAVING SCHEDULE ===');
     console.log('Profile ID:', profile.id);
     console.log('Schedule object:', JSON.stringify(schedule, null, 2));
     console.log('Schedule time field:', schedule.time);
+    console.log('showAlert parameter:', showAlert);
+    console.log('hasShownScheduleAlert:', hasShownScheduleAlert);
+    console.trace('saveSchedule called from:');
     
     try {
       if (schedule.enabled) {
@@ -164,13 +171,24 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
         });
         console.log('Schedule backup disabled successfully');
       }
-      alert('Schedule updated successfully!');
+      
+      // Show notification for user action
+      if (showAlert) {
+        console.log('Schedule updated successfully - user action');
+        setShowScheduleNotification(true);
+        // Hide notification after 3 seconds
+        setTimeout(() => {
+          setShowScheduleNotification(false);
+        }, 3000);
+      }
       
       console.log('Reloading schedule to check next_run...');
       await loadSchedule(); // Reload to get updated next_run time
     } catch (error) {
       console.error('Failed to save schedule:', error);
-      alert('Failed to save schedule: ' + error);
+      if (showAlert) {
+        alert('Failed to save schedule: ' + error);
+      }
     }
   };
 
@@ -374,8 +392,8 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
 
               <div className="form-group">
                 <label>Backup Mode</label>
-                <div className="radio-group">
-                  <label className="radio-option">
+                <div className="simple-radio-group">
+                  <label className="simple-radio">
                     <input
                       type="radio"
                       name="backup-mode"
@@ -383,15 +401,12 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                       checked={editedProfile.mode === 'Copy'}
                       onChange={(e) => handleProfileChange('mode', e.target.value as BackupMode)}
                     />
-                    <div className="radio-content">
-                      <div className="radio-title">Copy Mode</div>
-                      <div className="radio-description">
-                        Safe mode that only adds new files. Never deletes from cloud.
-                      </div>
-                    </div>
+                    <span className="radio-text">
+                      <strong>Copy Mode</strong> - Safe mode that only adds new files. Never deletes from cloud.
+                    </span>
                   </label>
 
-                  <label className="radio-option">
+                  <label className="simple-radio">
                     <input
                       type="radio"
                       name="backup-mode"
@@ -399,12 +414,9 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                       checked={editedProfile.mode === 'Sync'}
                       onChange={(e) => handleProfileChange('mode', e.target.value as BackupMode)}
                     />
-                    <div className="radio-content">
-                      <div className="radio-title">Sync Mode</div>
-                      <div className="radio-description">
-                        Makes cloud exactly match local. May delete files. Requires confirmation.
-                      </div>
-                    </div>
+                    <span className="radio-text">
+                      <strong>Sync Mode</strong> - Makes cloud exactly match local. May delete files. Requires confirmation.
+                    </span>
                   </label>
                 </div>
               </div>
@@ -637,7 +649,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
 
                 <button 
                   className="btn btn-primary"
-                  onClick={saveSchedule}
+                  onClick={() => saveSchedule(true)}
                   disabled={!schedule}
                 >
                   <Save size={16} />
@@ -663,6 +675,14 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
             <Save size={16} />
             {saving ? 'Saving...' : 'Save Changes'}
           </button>
+        </div>
+      )}
+      
+      {/* Schedule Update Notification */}
+      {showScheduleNotification && (
+        <div className="schedule-notification">
+          <CheckCircle size={16} />
+          <span>Schedule updated successfully!</span>
         </div>
       )}
     </div>

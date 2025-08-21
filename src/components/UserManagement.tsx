@@ -178,7 +178,7 @@ export default function UserManagement({ profile }: UserManagementProps) {
                       <div className="credential-item">
                         <label>Region</label>
                         <div className="credential-value">
-                          <code>{profile.aws_config.aws_region}</code>
+                          <code>{profile.aws_config?.aws_region}</code>
                           <button
                             className="btn-icon"
                             onClick={() => copyToClipboard(profile.aws_config!.aws_region, 'Region')}
@@ -191,7 +191,7 @@ export default function UserManagement({ profile }: UserManagementProps) {
                       <div className="credential-item">
                         <label>Bucket Name</label>
                         <div className="credential-value">
-                          <code>{profile.aws_config.bucket_name}</code>
+                          <code>{profile.aws_config?.bucket_name}</code>
                           <button
                             className="btn-icon"
                             onClick={() => copyToClipboard(profile.aws_config!.bucket_name, 'Bucket Name')}

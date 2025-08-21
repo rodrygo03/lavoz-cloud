@@ -158,23 +158,17 @@ fn parse_rclone_item(item: &Value) -> Result<Option<CloudFile>, String> {
 
 #[command]
 pub async fn backup_preview(profile: Profile) -> Result<BackupPreview, String> {
-    if profile.mode != BackupMode::Sync {
-        // For copy mode, we just show what will be copied (no deletes)
-        return Ok(BackupPreview {
-            files_to_copy: Vec::new(),
-            files_to_update: Vec::new(),
-            files_to_delete: Vec::new(),
-            total_files: 0,
-            total_size: 0,
-        });
-    }
+    let operation = match profile.mode {
+        BackupMode::Copy => "copy",
+        BackupMode::Sync => "sync",
+    };
 
     let destination = profile.destination();
     let mut all_changes = Vec::new();
 
     for source in &profile.sources {
         let mut args = vec![
-            "sync".to_string(),
+            operation.to_string(),
             source.clone(),
             destination.clone(),
             "--dry-run".to_string(),
@@ -336,7 +330,7 @@ pub async fn backup_run(profile: Profile, dry_run: bool) -> Result<BackupOperati
         combined_output.push_str("\n");
 
         if !output.status.success() && !dry_run {
-            return Ok(BackupOperation {
+            let failed_operation = BackupOperation {
                 id: operation_id,
                 profile_id: profile.id,
                 operation_type: OperationType::Backup,
@@ -347,7 +341,14 @@ pub async fn backup_run(profile: Profile, dry_run: bool) -> Result<BackupOperati
                 bytes_transferred: total_bytes,
                 error_message: Some(format!("rclone {} failed for {}: {}", operation, source, stderr)),
                 log_output: combined_output,
-            });
+            };
+
+            // Save the failed operation to config
+            if let Err(e) = crate::config::save_backup_operation(failed_operation.clone()).await {
+                eprintln!("Failed to save backup operation: {}", e);
+            }
+
+            return Ok(failed_operation);
         }
 
         // Parse stats from output (simplified)
@@ -358,7 +359,7 @@ pub async fn backup_run(profile: Profile, dry_run: bool) -> Result<BackupOperati
         }
     }
 
-    Ok(BackupOperation {
+    let operation = BackupOperation {
         id: operation_id,
         profile_id: profile.id,
         operation_type: OperationType::Backup,
@@ -369,7 +370,14 @@ pub async fn backup_run(profile: Profile, dry_run: bool) -> Result<BackupOperati
         bytes_transferred: total_bytes,
         error_message: None,
         log_output: combined_output,
-    })
+    };
+
+    // Save the operation to config
+    if let Err(e) = crate::config::save_backup_operation(operation.clone()).await {
+        eprintln!("Failed to save backup operation: {}", e);
+    }
+
+    Ok(operation)
 }
 
 #[command]
@@ -414,7 +422,7 @@ pub async fn restore_files(profile: Profile, remote_paths: Vec<String>, local_ta
         combined_output.push_str("\n");
 
         if !output.status.success() {
-            return Ok(BackupOperation {
+            let failed_operation = BackupOperation {
                 id: operation_id,
                 profile_id: profile.id,
                 operation_type: OperationType::Restore,
@@ -425,7 +433,14 @@ pub async fn restore_files(profile: Profile, remote_paths: Vec<String>, local_ta
                 bytes_transferred: total_bytes,
                 error_message: Some(format!("restore failed for {}: {}", full_remote_path, stderr)),
                 log_output: combined_output,
-            });
+            };
+
+            // Save the failed operation to config
+            if let Err(e) = crate::config::save_backup_operation(failed_operation.clone()).await {
+                eprintln!("Failed to save restore operation: {}", e);
+            }
+
+            return Ok(failed_operation);
         }
 
         if let Some((files, bytes)) = parse_rclone_stats(&stderr) {
@@ -434,7 +449,7 @@ pub async fn restore_files(profile: Profile, remote_paths: Vec<String>, local_ta
         }
     }
 
-    Ok(BackupOperation {
+    let operation = BackupOperation {
         id: operation_id,
         profile_id: profile.id,
         operation_type: OperationType::Restore,
@@ -445,7 +460,14 @@ pub async fn restore_files(profile: Profile, remote_paths: Vec<String>, local_ta
         bytes_transferred: total_bytes,
         error_message: None,
         log_output: combined_output,
-    })
+    };
+
+    // Save the operation to config
+    if let Err(e) = crate::config::save_backup_operation(operation.clone()).await {
+        eprintln!("Failed to save restore operation: {}", e);
+    }
+
+    Ok(operation)
 }
 
 fn parse_rclone_stats(output: &str) -> Option<(u64, u64)> {
@@ -461,8 +483,22 @@ fn parse_rclone_stats(output: &str) -> Option<(u64, u64)> {
 }
 
 #[command]
-pub async fn get_backup_logs(_profile_id: String, _limit: Option<usize>) -> Result<Vec<BackupOperation>, String> {
-    // In a real implementation, we'd store operation logs in a database or file
-    // For now, return empty list
-    Ok(Vec::new())
+pub async fn get_backup_logs(profile_id: String, limit: Option<usize>) -> Result<Vec<BackupOperation>, String> {
+    let config = crate::config::load_config().await?;
+    
+    // Filter operations for the specific profile and apply limit
+    let mut operations: Vec<BackupOperation> = config.backup_operations
+        .into_iter()
+        .filter(|op| op.profile_id == profile_id)
+        .collect();
+
+    // Sort by started_at descending (newest first)
+    operations.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+
+    // Apply limit if specified
+    if let Some(limit) = limit {
+        operations.truncate(limit);
+    }
+
+    Ok(operations)
 }

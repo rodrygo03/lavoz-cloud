@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
 import { 
   Folder, 
   File, 
@@ -50,7 +51,16 @@ export default function CloudBrowser({ profile }: CloudBrowserProps) {
       setFiles(cloudFiles);
     } catch (error) {
       console.error('Failed to load cloud files:', error);
-      alert('Failed to load files: ' + error);
+      const errorStr = String(error);
+      
+      // Handle empty bucket gracefully - don't show popup for "No such file or directory"
+      if (errorStr.includes('No such file or directory') || errorStr.includes('os error 2')) {
+        console.log('Bucket appears to be empty or path does not exist');
+        setFiles([]);
+      } else {
+        // Only show alert for actual errors, not empty buckets
+        alert('Failed to load files: ' + error);
+      }
     } finally {
       setLoading(false);
     }
@@ -103,24 +113,45 @@ export default function CloudBrowser({ profile }: CloudBrowserProps) {
   const restoreSelected = async () => {
     if (!profile || selectedFiles.size === 0) return;
 
-    // In a real implementation, we'd show a folder picker dialog
-    const localTarget = prompt('Enter local directory to restore files to:');
-    if (!localTarget) return;
-
-    setIsRestoring(true);
     try {
+      // Show folder picker dialog
+      const localTarget = await open({
+        directory: true,
+        multiple: false,
+        title: `Select folder to restore ${selectedFiles.size} file(s) to`
+      });
+
+      if (!localTarget || typeof localTarget !== 'string') {
+        return; // User cancelled
+      }
+
+      setIsRestoring(true);
+      
       const filesToRestore = Array.from(selectedFiles);
+      console.log('Starting restore operation:', {
+        fileCount: filesToRestore.length,
+        target: localTarget,
+        files: filesToRestore
+      });
+
       const operation = await invoke<BackupOperation>('restore_files', {
         profile,
         remotePaths: filesToRestore,
         localTarget
       });
 
-      alert(`Restore completed! ${operation.files_transferred} files restored.`);
+      console.log('Restore operation completed:', operation);
+
+      // Show detailed success message
+      const message = operation.status === 'Completed' 
+        ? `✅ Restore completed successfully!\n\n• ${operation.files_transferred} files restored\n• ${formatFileSize(operation.bytes_transferred)} transferred\n• Target: ${localTarget}`
+        : `⚠️ Restore completed with issues:\n\n• ${operation.files_transferred} files processed\n• Error: ${operation.error_message || 'Unknown error'}`;
+
+      alert(message);
       clearSelection();
     } catch (error) {
       console.error('Restore failed:', error);
-      alert('Restore failed: ' + error);
+      alert(`❌ Restore failed:\n\n${error}`);
     } finally {
       setIsRestoring(false);
     }

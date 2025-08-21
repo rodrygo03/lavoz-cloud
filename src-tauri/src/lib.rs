@@ -32,6 +32,8 @@ pub fn run() {
             auto_configure_rclone,
             generate_rclone_config,
             auto_setup_rclone_complete,
+            save_backup_operation,
+            sync_scheduled_backup_logs,
             detect_rclone,
             validate_rclone_config,
             list_cloud_files,

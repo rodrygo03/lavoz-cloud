@@ -9,7 +9,7 @@ import UserManagement from './components/UserManagement';
 import AdminSetup from './components/AdminSetup';
 import UserSetup from './components/UserSetup';
 import DependencyChecker from './components/DependencyChecker';
-import { Profile, ProfileType } from './types';
+import { Profile } from './types';
 import "./App.css";
 
 function App() {

@@ -8,6 +8,8 @@ use crate::config::{get_config_dir, load_config, save_config};
 
 #[command]
 pub async fn schedule_backup(profile_id: String, mut schedule: Schedule) -> Result<(), String> {
+    println!("[DEBUG] schedule_backup called with profile_id: {}", profile_id);
+    println!("[DEBUG] schedule: {:?}", schedule);
     let mut config = load_config().await?;
     
     if let Some(profile) = config.profiles.iter_mut().find(|p| p.id == profile_id) {
@@ -35,7 +37,14 @@ pub async fn schedule_backup(profile_id: String, mut schedule: Schedule) -> Resu
         profile.updated_at = Utc::now();
         
         // Create the actual OS schedule using simplified approach
-        create_simple_os_schedule(profile, &schedule).await?;
+        println!("[DEBUG] Creating OS schedule...");
+        match create_simple_os_schedule(profile, &schedule).await {
+            Ok(_) => println!("[DEBUG] OS schedule created successfully"),
+            Err(e) => {
+                println!("[DEBUG] Failed to create OS schedule: {}", e);
+                return Err(format!("Failed to create OS schedule: {}", e));
+            }
+        }
         
         config.updated_at = Utc::now();
         save_config(&config).await?;

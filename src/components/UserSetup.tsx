@@ -1,11 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { 
   ArrowRight, 
   ArrowLeft, 
   Key, 
   Folder,
-  User,
   CheckCircle
 } from 'lucide-react';
 import { Profile, BackupMode } from '../types';
@@ -44,7 +43,7 @@ export default function UserSetup({ onSetupComplete, onCancel }: UserSetupProps)
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [isCreating, setIsCreating] = useState(false);
 
-  useState(() => {
+  useEffect(() => {
     detectRclone();
   }, []);
 
@@ -272,7 +271,7 @@ acl = private
                 id="bucket"
                 type="text"
                 value={formData.bucket}
-                onChange={(e) => setFormData(prev => ({ ...prev, bucket: e.target.value }))}
+                onChange={(e) => setFormData(prev => ({ ...prev, bucket: e.target.value.toLowerCase() }))}
                 placeholder="company-backups"
                 className={validationErrors.bucket ? 'error' : ''}
               />
@@ -288,7 +287,7 @@ acl = private
               id="username"
               type="text"
               value={formData.username}
-              onChange={(e) => setFormData(prev => ({ ...prev, username: e.target.value }))}
+              onChange={(e) => setFormData(prev => ({ ...prev, username: e.target.value.toLowerCase() }))}
               placeholder="john-doe"
               className={validationErrors.username ? 'error' : ''}
             />

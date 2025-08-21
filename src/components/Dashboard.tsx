@@ -54,13 +54,28 @@ export default function Dashboard({ profile }: DashboardProps) {
     if (!profile) return;
 
     try {
+      // Sync any scheduled backup logs first
+      console.log('Syncing scheduled backup logs...');
+      const syncedCount = await invoke<number>('sync_scheduled_backup_logs', {
+        profileId: profile.id
+      });
+      console.log('Synced', syncedCount, 'backup operations');
+
       // Load backup logs
+      console.log('Loading backup logs...');
       const operations = await invoke<BackupOperation[]>('get_backup_logs', {
         profileId: profile.id,
         limit: 1
       });
+      console.log('Retrieved operations:', operations);
       if (operations.length > 0) {
+        console.log('Setting last backup to:', operations[0]);
+        console.log('Operation type:', operations[0].operation_type);
+        console.log('Started at:', operations[0].started_at);
+        console.log('Log output preview:', operations[0].log_output.substring(0, 100));
         setLastBackup(operations[0]);
+      } else {
+        console.log('No operations found');
       }
 
       // Load schedule status
@@ -338,8 +353,8 @@ export default function Dashboard({ profile }: DashboardProps) {
             </button>
           </div>
           <div className="card-content">
-            {logs ? (
-              <pre className="logs-content">{logs}</pre>
+            {logs || lastBackup?.log_output ? (
+              <pre className="logs-content">{logs || lastBackup?.log_output}</pre>
             ) : (
               <div className="empty-state-small">
                 <FileText size={24} />

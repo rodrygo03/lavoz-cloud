@@ -488,6 +488,8 @@ input.error {
   border-radius: var(--radius);
   cursor: pointer;
   transition: all 0.2s;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .radio-option:hover {
@@ -501,6 +503,9 @@ input.error {
 
 .option-content {
   flex: 1;
+  min-width: 0;
+  word-wrap: break-word;
+  overflow: hidden;
 }
 
 .option-title {
@@ -521,6 +526,86 @@ input.error {
   align-items: center;
   gap: 0.5rem;
   cursor: pointer;
+  padding: 0.5rem 0;
+}
+
+
+.checkbox-label input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
+  margin: 0;
+}
+.checkbox-label span {
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+/* Simple radio buttons without boxes */
+.simple-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.simple-radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  cursor: pointer;
+  padding: 0.5rem 0;
+}
+
+.simple-radio input[type="radio"] {
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.125rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.simple-radio .radio-text {
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.simple-radio .radio-text strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Schedule notification */
+.schedule-notification {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--success);
+  color: white;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  z-index: 1000;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.schedule-notification span {
+  font-weight: 500;
+  font-size: 0.875rem;
 }
 
 /* Onboarding */
@@ -892,7 +977,7 @@ input.error {
 }
 
 .file-items {
-  max-height: 600px;
+  max-height: 800px;
   overflow: auto;
 }
 
