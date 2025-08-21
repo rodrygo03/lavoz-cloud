@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useTranslation } from 'react-i18next';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import CloudBrowser from './components/CloudBrowser';
@@ -10,9 +11,11 @@ import AdminSetup from './components/AdminSetup';
 import UserSetup from './components/UserSetup';
 import DependencyChecker from './components/DependencyChecker';
 import { Profile } from './types';
+import './i18n';
 import "./App.css";
 
 function App() {
+  const { t } = useTranslation();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeProfile, setActiveProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -59,7 +62,7 @@ function App() {
     return (
       <div className="loading-container">
         <div className="loading-spinner"></div>
-        <p>Loading...</p>
+        <p>{t('common.loading')}</p>
       </div>
     );
   }
@@ -90,22 +93,22 @@ function App() {
     return (
       <div className="setup-type-selection">
         <div className="selection-container">
-          <h1>Welcome to Cloud Backup</h1>
-          <p>Choose your setup type to get started.</p>
+          <h1>{t('app.welcome')}</h1>
+          <p>{t('app.chooseSetupType')}</p>
           
           <div className="setup-options">
             <div className="setup-option" onClick={() => setShowSetup('admin')}>
               <div className="option-icon">👑</div>
-              <h3>Administrator Setup</h3>
-              <p>Configure AWS infrastructure, create bucket, and manage user accounts. Choose this if you're setting up the backup system for your organization.</p>
-              <button className="btn btn-primary">Setup as Admin</button>
+              <h3>{t('setup.adminSetup')}</h3>
+              <p>{t('setup.adminDescription')}</p>
+              <button className="btn btn-primary">{t('setup.setupAsAdmin')}</button>
             </div>
             
             <div className="setup-option" onClick={() => setShowSetup('user')}>
               <div className="option-icon">👤</div>
-              <h3>User Setup</h3>
-              <p>Connect to an existing backup system using credentials provided by your administrator.</p>
-              <button className="btn btn-secondary">Setup as User</button>
+              <h3>{t('setup.userSetup')}</h3>
+              <p>{t('setup.userDescription')}</p>
+              <button className="btn btn-secondary">{t('setup.setupAsUser')}</button>
             </div>
           </div>
         </div>

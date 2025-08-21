@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { 
   Play, 
@@ -20,6 +21,7 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ profile }: DashboardProps) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [lastBackup, setLastBackup] = useState<BackupOperation | null>(null);
   const [isRunning, setIsRunning] = useState(false);
@@ -148,8 +150,10 @@ export default function Dashboard({ profile }: DashboardProps) {
     
     if (hasDeletes) {
       const confirmed = confirm(
-        `This sync operation will delete ${preview.files_to_delete.length} files from the cloud. ` +
-        'Are you sure you want to continue?'
+        t('dashboard.syncDeleteConfirmation', { 
+          count: preview.files_to_delete.length,
+          defaultValue: `This sync operation will delete ${preview.files_to_delete.length} files from the cloud. Are you sure you want to continue?`
+        })
       );
       if (!confirmed) return;
     }
@@ -183,8 +187,8 @@ export default function Dashboard({ profile }: DashboardProps) {
       <div className="dashboard">
         <div className="empty-state">
           <Activity size={48} />
-          <h2>No Profile Selected</h2>
-          <p>Select a profile from the sidebar to view the dashboard.</p>
+          <h2>{t('dashboard.noProfileSelected')}</h2>
+          <p>{t('dashboard.selectProfile')}</p>
         </div>
       </div>
     );
@@ -193,7 +197,7 @@ export default function Dashboard({ profile }: DashboardProps) {
   return (
     <div className="dashboard">
       <div className="dashboard-header">
-        <h1>Dashboard</h1>
+        <h1>{t('dashboard.title')}</h1>
         <div className="profile-info">
           <span className="profile-name">{profile.name}</span>
           <span className="profile-destination">
@@ -206,7 +210,7 @@ export default function Dashboard({ profile }: DashboardProps) {
         {/* Backup Actions */}
         <div className="card">
           <div className="card-header">
-            <h3>Backup Actions</h3>
+            <h3>{t('dashboard.backupActions')}</h3>
           </div>
           <div className="card-content">
             <div className="action-buttons">
@@ -216,7 +220,7 @@ export default function Dashboard({ profile }: DashboardProps) {
                 disabled={isRunning}
               >
                 <Play size={20} />
-                {isRunning ? 'Running Backup...' : 'Run Backup Now'}
+                {isRunning ? t('dashboard.runningBackup') : t('dashboard.runBackupNow')}
               </button>
 
               {profile.mode === 'Sync' && (
@@ -226,21 +230,21 @@ export default function Dashboard({ profile }: DashboardProps) {
                   disabled={isRunning}
                 >
                   <Eye size={16} />
-                  Preview Changes
+                  {t('dashboard.previewChanges')}
                 </button>
               )}
             </div>
 
             <div className="backup-info">
               <div className="info-item">
-                <span className="label">Mode:</span>
+                <span className="label">{t('dashboard.mode')}:</span>
                 <span className={`value mode-${profile.mode.toLowerCase()}`}>
                   {profile.mode}
                 </span>
               </div>
               <div className="info-item">
-                <span className="label">Sources:</span>
-                <span className="value">{profile.sources.length} folder(s)</span>
+                <span className="label">{t('dashboard.sources')}:</span>
+                <span className="value">{profile.sources.length} {t('dashboard.folders')}</span>
               </div>
             </div>
           </div>
@@ -249,7 +253,7 @@ export default function Dashboard({ profile }: DashboardProps) {
         {/* Last Backup Status */}
         <div className="card">
           <div className="card-header">
-            <h3>Last Backup</h3>
+            <h3>{t('dashboard.lastBackup')}</h3>
           </div>
           <div className="card-content">
             {lastBackup ? (
@@ -259,7 +263,11 @@ export default function Dashboard({ profile }: DashboardProps) {
                     {lastBackup.status === 'Completed' && <CheckCircle size={20} />}
                     {lastBackup.status === 'Failed' && <AlertTriangle size={20} />}
                     {lastBackup.status === 'Running' && <Clock size={20} />}
-                    <span>{lastBackup.status}</span>
+                    <span>
+                      {lastBackup.status === 'Completed' && t('dashboard.statusCompleted')}
+                      {lastBackup.status === 'Failed' && t('dashboard.statusFailed')}
+                      {lastBackup.status === 'Running' && t('dashboard.statusRunning')}
+                    </span>
                   </div>
                   <span className="backup-date">
                     {formatDate(lastBackup.started_at)}
@@ -269,11 +277,11 @@ export default function Dashboard({ profile }: DashboardProps) {
                 <div className="backup-stats">
                   <div className="stat">
                     <span className="stat-value">{lastBackup.files_transferred}</span>
-                    <span className="stat-label">Files</span>
+                    <span className="stat-label">{t('dashboard.files')}</span>
                   </div>
                   <div className="stat">
                     <span className="stat-value">{formatBytes(lastBackup.bytes_transferred)}</span>
-                    <span className="stat-label">Data</span>
+                    <span className="stat-label">{t('dashboard.data')}</span>
                   </div>
                 </div>
 
@@ -286,7 +294,7 @@ export default function Dashboard({ profile }: DashboardProps) {
             ) : (
               <div className="empty-state-small">
                 <Clock size={24} />
-                <p>No backups run yet</p>
+                <p>{t('dashboard.noBackupsYet')}</p>
               </div>
             )}
           </div>
@@ -295,14 +303,14 @@ export default function Dashboard({ profile }: DashboardProps) {
         {/* Schedule Status */}
         <div className="card">
           <div className="card-header">
-            <h3>Schedule</h3>
+            <h3>{t('dashboard.schedule')}</h3>
           </div>
           <div className="card-content">
             {schedule && schedule.enabled ? (
               <div className="schedule-info">
                 <div className="schedule-status enabled">
                   <Calendar size={16} />
-                  <span>Scheduled</span>
+                  <span>{t('dashboard.scheduled')}</span>
                 </div>
                 <div className="schedule-details">
                   <div className="schedule-frequency">
@@ -317,7 +325,7 @@ export default function Dashboard({ profile }: DashboardProps) {
                 </div>
                 {schedule.next_run && (
                   <div className="next-run">
-                    Next run: {formatDate(schedule.next_run)}
+                    {t('dashboard.nextRun')}: {formatDate(schedule.next_run)}
                   </div>
                 )}
                 <button 
@@ -325,19 +333,19 @@ export default function Dashboard({ profile }: DashboardProps) {
                   onClick={() => navigate('/settings?tab=schedule')}
                 >
                   <SettingsIcon size={14} />
-                  Change Schedule
+                  {t('dashboard.changeSchedule')}
                 </button>
               </div>
             ) : (
               <div className="empty-state-small">
                 <Calendar size={24} />
-                <p>No schedule configured</p>
+                <p>{t('dashboard.noScheduleConfigured')}</p>
                 <button 
                   className="btn btn-secondary btn-small"
                   onClick={() => navigate('/settings?tab=schedule')}
                 >
                   <SettingsIcon size={14} />
-                  Set Schedule
+                  {t('dashboard.setSchedule')}
                 </button>
               </div>
             )}
@@ -347,7 +355,7 @@ export default function Dashboard({ profile }: DashboardProps) {
         {/* Recent Logs */}
         <div className="card full-width">
           <div className="card-header">
-            <h3>Recent Logs</h3>
+            <h3>{t('dashboard.recentLogs')}</h3>
             <button className="btn-icon">
               <FileText size={16} />
             </button>
@@ -358,7 +366,7 @@ export default function Dashboard({ profile }: DashboardProps) {
             ) : (
               <div className="empty-state-small">
                 <FileText size={24} />
-                <p>No logs available</p>
+                <p>{t('dashboard.noLogsAvailable')}</p>
               </div>
             )}
           </div>
@@ -370,7 +378,7 @@ export default function Dashboard({ profile }: DashboardProps) {
         <div className="modal-overlay">
           <div className="modal">
             <div className="modal-header">
-              <h3>Sync Preview</h3>
+              <h3>{t('dashboard.syncPreview', { defaultValue: 'Sync Preview' })}</h3>
               <button 
                 className="modal-close"
                 onClick={() => setShowPreview(false)}
@@ -382,15 +390,15 @@ export default function Dashboard({ profile }: DashboardProps) {
               <div className="preview-summary">
                 <div className="summary-item">
                   <span className="count">{preview.files_to_copy.length}</span>
-                  <span className="label">Files to copy</span>
+                  <span className="label">{t('dashboard.filesToCopy', { defaultValue: 'Files to copy' })}</span>
                 </div>
                 <div className="summary-item">
                   <span className="count">{preview.files_to_update.length}</span>
-                  <span className="label">Files to update</span>
+                  <span className="label">{t('dashboard.filesToUpdate', { defaultValue: 'Files to update' })}</span>
                 </div>
                 <div className="summary-item danger">
                   <span className="count">{preview.files_to_delete.length}</span>
-                  <span className="label">Files to delete</span>
+                  <span className="label">{t('dashboard.filesToDelete', { defaultValue: 'Files to delete' })}</span>
                 </div>
               </div>
 
@@ -398,8 +406,7 @@ export default function Dashboard({ profile }: DashboardProps) {
                 <div className="warning-box">
                   <AlertTriangle size={16} />
                   <div>
-                    <strong>Warning:</strong> This operation will delete {preview.files_to_delete.length} files from the cloud.
-                    This action cannot be undone.
+                    <strong>{t('dashboard.warning', { defaultValue: 'Warning' })}:</strong> {t('dashboard.deleteWarning', { count: preview.files_to_delete.length, defaultValue: `This operation will delete ${preview.files_to_delete.length} files from the cloud. This action cannot be undone.` })}
                   </div>
                 </div>
               )}
@@ -407,7 +414,7 @@ export default function Dashboard({ profile }: DashboardProps) {
               <div className="preview-details">
                 {preview.files_to_delete.length > 0 && (
                   <div className="file-changes">
-                    <h4>Files to delete:</h4>
+                    <h4>{t('dashboard.filesToDeleteList', { defaultValue: 'Files to delete:' })}</h4>
                     <div className="file-list">
                       {preview.files_to_delete.slice(0, 10).map((file, index) => (
                         <div key={index} className="file-item danger">
@@ -416,7 +423,7 @@ export default function Dashboard({ profile }: DashboardProps) {
                       ))}
                       {preview.files_to_delete.length > 10 && (
                         <div className="file-item">
-                          ... and {preview.files_to_delete.length - 10} more
+                          {t('dashboard.andMore', { count: preview.files_to_delete.length - 10, defaultValue: `... and ${preview.files_to_delete.length - 10} more` })}
                         </div>
                       )}
                     </div>
@@ -429,14 +436,14 @@ export default function Dashboard({ profile }: DashboardProps) {
                 className="btn btn-secondary"
                 onClick={() => setShowPreview(false)}
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button 
                 className="btn btn-danger"
                 onClick={confirmAndRunSync}
                 disabled={isRunning}
               >
-                {isRunning ? 'Running...' : 'Confirm & Run Sync'}
+                {isRunning ? t('dashboard.running', { defaultValue: 'Running...' }) : t('dashboard.confirmAndRunSync', { defaultValue: 'Confirm & Run Sync' })}
               </button>
             </div>
           </div>

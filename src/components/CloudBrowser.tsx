@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { 
@@ -19,6 +20,7 @@ interface CloudBrowserProps {
 }
 
 export default function CloudBrowser({ profile }: CloudBrowserProps) {
+  const { t } = useTranslation();
   const [files, setFiles] = useState<CloudFile[]>([]);
   const [currentPath, setCurrentPath] = useState('');
   const [loading, setLoading] = useState(false);
@@ -151,7 +153,7 @@ export default function CloudBrowser({ profile }: CloudBrowserProps) {
       clearSelection();
     } catch (error) {
       console.error('Restore failed:', error);
-      alert(`❌ Restore failed:\n\n${error}`);
+      alert(t('cloudBrowser.restoreError') + `:\n\n${error}`);
     } finally {
       setIsRestoring(false);
     }
@@ -187,8 +189,8 @@ export default function CloudBrowser({ profile }: CloudBrowserProps) {
       <div className="cloud-browser">
         <div className="empty-state">
           <Folder size={48} />
-          <h2>No Profile Selected</h2>
-          <p>Select a profile from the sidebar to browse cloud files.</p>
+          <h2>{t('cloudBrowser.noProfileSelected', { defaultValue: 'No Profile Selected' })}</h2>
+          <p>{t('cloudBrowser.selectProfileBrowse', { defaultValue: 'Select a profile from the sidebar to browse cloud files.' })}</p>
         </div>
       </div>
     );
@@ -199,7 +201,7 @@ export default function CloudBrowser({ profile }: CloudBrowserProps) {
   return (
     <div className="cloud-browser">
       <div className="browser-header">
-        <h1>Cloud Browser</h1>
+        <h1>{t('cloudBrowser.title')}</h1>
         <div className="profile-destination">
           {profile.remote}:{profile.bucket}/{profile.prefix}
         </div>
@@ -213,7 +215,7 @@ export default function CloudBrowser({ profile }: CloudBrowserProps) {
             onClick={navigateToRoot}
           >
             <Home size={16} />
-            Root
+            {t('cloudBrowser.home')}
           </button>
           {getBreadcrumbs().map((part, index) => (
             <div key={index} className="breadcrumb-item">
@@ -235,7 +237,7 @@ export default function CloudBrowser({ profile }: CloudBrowserProps) {
             <Search size={16} />
             <input
               type="text"
-              placeholder="Search files..."
+              placeholder={t('cloudBrowser.searchFiles')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -254,14 +256,14 @@ export default function CloudBrowser({ profile }: CloudBrowserProps) {
       {selectedFiles.size > 0 && (
         <div className="selection-bar">
           <div className="selection-info">
-            {selectedFiles.size} file(s) selected
+            {selectedFiles.size} {t('cloudBrowser.filesSelected', { defaultValue: 'file(s) selected' })}
           </div>
           <div className="selection-actions">
             <button 
               className="btn btn-secondary"
               onClick={clearSelection}
             >
-              Clear
+              {t('cloudBrowser.clearSelection')}
             </button>
             <button 
               className="btn btn-primary"
@@ -269,7 +271,7 @@ export default function CloudBrowser({ profile }: CloudBrowserProps) {
               disabled={isRestoring}
             >
               <Download size={16} />
-              {isRestoring ? 'Restoring...' : 'Restore Selected'}
+              {isRestoring ? t('cloudBrowser.restoring') : t('cloudBrowser.restoreSelected')}
             </button>
           </div>
         </div>
@@ -280,16 +282,16 @@ export default function CloudBrowser({ profile }: CloudBrowserProps) {
         {loading ? (
           <div className="loading-state">
             <div className="loading-spinner"></div>
-            <p>Loading files...</p>
+            <p>{t('cloudBrowser.loadingFiles', { defaultValue: 'Loading files...' })}</p>
           </div>
         ) : filteredFiles.length === 0 ? (
           <div className="empty-state">
             <Folder size={48} />
-            <h3>No files found</h3>
+            <h3>{t('cloudBrowser.noFilesFound')}</h3>
             <p>
               {searchTerm 
-                ? `No files match "${searchTerm}"`
-                : 'This directory is empty'
+                ? t('cloudBrowser.noFilesMatch', { term: searchTerm, defaultValue: `No files match "${searchTerm}"` })
+                : t('cloudBrowser.emptyFolder')
               }
             </p>
           </div>

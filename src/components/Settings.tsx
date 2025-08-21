@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { 
@@ -14,6 +15,7 @@ import {
   CheckCircle
 } from 'lucide-react';
 import { Profile, Schedule, ScheduleFrequency, BackupMode } from '../types';
+import LanguageSwitcher from './LanguageSwitcher';
 
 interface SettingsProps {
   profile: Profile | null;
@@ -21,6 +23,7 @@ interface SettingsProps {
 }
 
 export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
+  const { t } = useTranslation();
   const location = useLocation();
   const [editedProfile, setEditedProfile] = useState<Profile | null>(null);
   const [schedule, setSchedule] = useState<Schedule | null>(null);
@@ -251,24 +254,24 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
       <div className="settings">
         <div className="empty-state">
           <SettingsIcon size={48} />
-          <h2>No Profile Selected</h2>
-          <p>Select a profile from the sidebar to view settings.</p>
+          <h2>{t('settings.noProfileSelected', { defaultValue: 'No Profile Selected' })}</h2>
+          <p>{t('settings.selectProfileSettings', { defaultValue: 'Select a profile from the sidebar to view settings.' })}</p>
         </div>
       </div>
     );
   }
 
   const tabs = [
-    { id: 'general', label: 'General', icon: SettingsIcon },
-    { id: 'sources', label: 'Sources', icon: Folder },
-    { id: 'advanced', label: 'Advanced', icon: Zap },
-    { id: 'schedule', label: 'Schedule', icon: Clock },
+    { id: 'general', label: t('settings.general'), icon: SettingsIcon },
+    { id: 'sources', label: t('settings.sources'), icon: Folder },
+    { id: 'advanced', label: t('settings.advanced'), icon: Zap },
+    { id: 'schedule', label: t('settings.schedule'), icon: Clock },
   ] as const;
 
   return (
     <div className="settings">
       <div className="settings-header">
-        <h1>Settings</h1>
+        <h1>{t('settings.title')}</h1>
         <div className="profile-name">{profile.name}</div>
       </div>
 
@@ -294,10 +297,12 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
         <div className="settings-main">
           {activeTab === 'general' && (
             <div className="settings-section">
-              <h2>General Settings</h2>
+              <h2>{t('settings.general')}</h2>
+              
+              <LanguageSwitcher />
               
               <div className="form-group">
-                <label htmlFor="profile-name">Profile Name</label>
+                <label htmlFor="profile-name">{t('settings.profileName')}</label>
                 <input
                   id="profile-name"
                   type="text"
@@ -307,7 +312,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
               </div>
 
               <div className="form-group">
-                <label htmlFor="rclone-bin">Rclone Binary</label>
+                <label htmlFor="rclone-bin">{t('settings.rcloneBinary')}</label>
                 <div className="file-input">
                   <input
                     id="rclone-bin"
@@ -332,13 +337,13 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                       autoConfigureRclone();
                     }}
                   >
-                    Auto-Setup
+                    {t('settings.autoSetup', { defaultValue: 'Auto-Setup' })}
                   </button>
                 </div>
               </div>
 
               <div className="form-group">
-                <label htmlFor="rclone-conf">Rclone Config</label>
+                <label htmlFor="rclone-conf">{t('settings.rcloneConfig')}</label>
                 <div className="file-input">
                   <input
                     id="rclone-conf"
@@ -360,7 +365,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
 
               <div className="form-row">
                 <div className="form-group">
-                  <label htmlFor="remote">Remote</label>
+                  <label htmlFor="remote">{t('settings.remote')}</label>
                   <input
                     id="remote"
                     type="text"
@@ -370,7 +375,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                 </div>
 
                 <div className="form-group">
-                  <label htmlFor="bucket">Bucket</label>
+                  <label htmlFor="bucket">{t('settings.bucket')}</label>
                   <input
                     id="bucket"
                     type="text"
@@ -380,7 +385,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                 </div>
 
                 <div className="form-group">
-                  <label htmlFor="prefix">Prefix</label>
+                  <label htmlFor="prefix">{t('settings.prefix')}</label>
                   <input
                     id="prefix"
                     type="text"
@@ -391,7 +396,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
               </div>
 
               <div className="form-group">
-                <label>Backup Mode</label>
+                <label>{t('settings.backupMode')}</label>
                 <div className="simple-radio-group">
                   <label className="simple-radio">
                     <input
@@ -402,7 +407,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                       onChange={(e) => handleProfileChange('mode', e.target.value as BackupMode)}
                     />
                     <span className="radio-text">
-                      <strong>Copy Mode</strong> - Safe mode that only adds new files. Never deletes from cloud.
+                      <strong>{t('settings.copyMode')}</strong> - {t('settings.copyModeDescription')}
                     </span>
                   </label>
 
@@ -415,7 +420,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                       onChange={(e) => handleProfileChange('mode', e.target.value as BackupMode)}
                     />
                     <span className="radio-text">
-                      <strong>Sync Mode</strong> - Makes cloud exactly match local. May delete files. Requires confirmation.
+                      <strong>{t('settings.syncMode')}</strong> - {t('settings.syncModeDescription')}
                     </span>
                   </label>
                 </div>
@@ -425,8 +430,8 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
 
           {activeTab === 'sources' && (
             <div className="settings-section">
-              <h2>Source Folders</h2>
-              <p>Select the folders you want to backup to the cloud.</p>
+              <h2>{t('settings.foldersToBackup')}</h2>
+              <p>{t('settings.selectFoldersDescription', { defaultValue: 'Select the folders you want to backup to the cloud.' })}</p>
 
               <div className="sources-list">
                 {editedProfile.sources.map((source, index) => (
@@ -435,7 +440,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                       type="text"
                       value={source}
                       onChange={(e) => handleSourceChange(index, e.target.value)}
-                      placeholder="Path to folder"
+                      placeholder={t('settings.pathToFolder')}
                     />
                     <button
                       type="button"
@@ -463,18 +468,18 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                 onClick={addSource}
               >
                 <Plus size={16} />
-                Add Source Folder
+                {t('settings.addFolder')}
               </button>
             </div>
           )}
 
           {activeTab === 'advanced' && (
             <div className="settings-section">
-              <h2>Advanced Settings</h2>
-              <p>Configure rclone flags and advanced options.</p>
+              <h2>{t('settings.advanced')}</h2>
+              <p>{t('settings.advancedDescription', { defaultValue: 'Configure rclone flags and advanced options.' })}</p>
 
               <div className="form-group">
-                <label>Rclone Flags</label>
+                <label>{t('settings.rcloneFlags')}</label>
                 <div className="flags-list">
                   {editedProfile.rclone_flags.map((flag, index) => (
                     <div key={index} className="flag-item">
@@ -501,7 +506,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                   onClick={addFlag}
                 >
                   <Plus size={16} />
-                  Add Flag
+                  {t('settings.addFlag')}
                 </button>
 
                 <div className="help-text">
@@ -513,8 +518,8 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
 
           {activeTab === 'schedule' && (
             <div className="settings-section">
-              <h2>Backup Schedule</h2>
-              <p>Configure automatic backup scheduling.</p>
+              <h2>{t('settings.backupSchedule')}</h2>
+              <p>{t('settings.configureAutomaticBackup')}</p>
 
               <div className="schedule-settings">
                 <div className="form-group">
@@ -537,12 +542,12 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                         }
                       }}
                     />
-                    <span>Enable automatic backups</span>
+                    <span>{t('settings.enableAutomaticBackups')}</span>
                   </label>
                 </div>
 
                 <div className="form-group">
-                  <label>Frequency</label>
+                  <label>{t('settings.frequency')}</label>
                   <select
                     value={
                       schedule && typeof schedule.frequency === 'object' && 'Daily' in schedule.frequency ? 'daily' :
@@ -578,14 +583,14 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                       }
                     }}
                   >
-                    <option value="daily">Daily</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="monthly">Monthly</option>
+                    <option value="daily">{t('settings.daily')}</option>
+                    <option value="weekly">{t('settings.weekly')}</option>
+                    <option value="monthly">{t('settings.monthly')}</option>
                   </select>
                 </div>
 
                 <div className="form-group">
-                  <label htmlFor="schedule-time">Backup Time (24-hour format)</label>
+                  <label htmlFor="schedule-time">{t('settings.time')}</label>
                   <div className="time-input-group">
                     <input
                       id="schedule-time-hour"
@@ -644,7 +649,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                       className="time-input minute"
                     />
                   </div>
-                  <small className="help-text">Enter time in 24-hour format: 0-23 hours, 0-59 minutes (e.g., 14:30 for 2:30 PM, 22:45 for 10:45 PM)</small>
+                  <small className="help-text">{t('settings.timeFormat')}</small>
                 </div>
 
                 <button 
@@ -653,7 +658,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                   disabled={!schedule}
                 >
                   <Save size={16} />
-                  Save Schedule
+                  {t('settings.saveSchedule')}
                 </button>
               </div>
             </div>
@@ -665,7 +670,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
         <div className="settings-footer">
           <div className="unsaved-changes">
             <Shield size={16} />
-            <span>You have unsaved changes</span>
+            <span>{t('settings.unsavedChanges', { defaultValue: 'You have unsaved changes' })}</span>
           </div>
           <button 
             className="btn btn-primary"
@@ -673,7 +678,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
             disabled={saving}
           >
             <Save size={16} />
-            {saving ? 'Saving...' : 'Save Changes'}
+            {saving ? t('settings.saving') : t('settings.saveChanges')}
           </button>
         </div>
       )}
@@ -682,7 +687,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
       {showScheduleNotification && (
         <div className="schedule-notification">
           <CheckCircle size={16} />
-          <span>Schedule updated successfully!</span>
+          <span>{t('settings.scheduleUpdatedSuccessfully')}</span>
         </div>
       )}
     </div>

@@ -2056,3 +2056,22 @@ input.error {
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 3px rgb(59 130 246 / 0.1);
 }
+
+/* Language Select Styles */
+.language-select {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.language-select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgb(59 130 246 / 0.1);
+}

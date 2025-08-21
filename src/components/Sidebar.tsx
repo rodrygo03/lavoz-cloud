@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { 
   Database, 
   Cloud, 
@@ -30,6 +31,7 @@ export default function Sidebar({
   onNewProfile,
   onProfilesUpdated 
 }: SidebarProps) {
+  const { t } = useTranslation();
   const location = useLocation();
   const [showProfileMenu, setShowProfileMenu] = useState<string | null>(null);
 
@@ -47,13 +49,13 @@ export default function Sidebar({
   };
 
   const baseNavItems = [
-    { path: '/dashboard', label: 'Dashboard', icon: Monitor },
-    { path: '/cloud-browser', label: 'Cloud Browser', icon: Cloud },
-    { path: '/settings', label: 'Settings', icon: Settings },
+    { path: '/dashboard', label: t('sidebar.dashboard'), icon: Monitor },
+    { path: '/cloud-browser', label: t('sidebar.cloudBrowser'), icon: Cloud },
+    { path: '/settings', label: t('sidebar.settings'), icon: Settings },
   ];
 
   const adminNavItems = [
-    { path: '/user-management', label: 'User Management', icon: Users },
+    { path: '/user-management', label: t('sidebar.userManagement'), icon: Users },
   ];
 
   const navItems = activeProfile?.profile_type === 'Admin' 
@@ -94,7 +96,7 @@ export default function Sidebar({
           <button 
             className="icon-button"
             onClick={onNewProfile}
-            title="Create new profile"
+            title={t('sidebar.newProfile')}
           >
             <Plus size={16} />
           </button>
@@ -151,12 +153,12 @@ export default function Sidebar({
 
           {profiles.length === 0 && (
             <div className="empty-state">
-              <p>No profiles configured</p>
+              <p>{t('sidebar.noProfiles')}</p>
               <button 
                 className="btn btn-primary"
                 onClick={onNewProfile}
               >
-                Create Profile
+                {t('sidebar.createProfile')}
               </button>
             </div>
           )}
