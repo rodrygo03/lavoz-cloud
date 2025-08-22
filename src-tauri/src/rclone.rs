@@ -6,12 +6,51 @@ use tokio::process::Command;
 use chrono::{DateTime, Utc};
 
 use crate::models::*;
+use crate::downloader::get_rclone_binary_path;
+
+/// Resolve rclone binary path - use bundled or system rclone
+fn resolve_rclone_binary(profile_rclone_bin: &str) -> Result<String, String> {
+    // If profile wants bundled or system detection
+    if profile_rclone_bin == "bundled" || profile_rclone_bin.contains("bundled") {
+        // Use the sidecar function to get the correct path
+        if let Ok(bundled_path) = get_rclone_binary_path() {
+            return Ok(bundled_path.to_string_lossy().to_string());
+        }
+        
+        // If bundled path fails, fallback to rclone in PATH
+        return Ok("rclone".to_string());
+    }
+    
+    // Use the profile's specified binary path
+    Ok(profile_rclone_bin.to_string())
+}
 
 #[command]
 pub async fn detect_rclone() -> Result<Vec<String>, String> {
     let mut candidates = Vec::new();
     
-    // Common locations for rclone
+    // First try bundled/system rclone
+    if let Ok(rclone_path) = get_rclone_binary_path() {
+        let path_str = rclone_path.to_string_lossy().to_string();
+        if let Ok(output) = Command::new(&rclone_path)
+            .arg("version")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+        {
+            if output.status.success() {
+                let label = if path_str.contains("Resources/binaries") {
+                    "bundled"
+                } else {
+                    "system"
+                };
+                candidates.push(format!("{} ({})", path_str, label));
+            }
+        }
+    }
+    
+    // Then try common system locations for rclone
     let common_paths = vec![
         "/usr/local/bin/rclone",
         "/opt/homebrew/bin/rclone",
@@ -28,14 +67,18 @@ pub async fn detect_rclone() -> Result<Vec<String>, String> {
             .await
         {
             if output.status.success() {
-                candidates.push(path.to_string());
+                candidates.push(format!("{} (system)", path));
             }
         }
     }
 
-    // If no system rclone found, we could bundle one later
+    // If no rclone found at all, indicate bundled one should work
     if candidates.is_empty() {
-        candidates.push("rclone (not found - will need to install or bundle)".to_string());
+        if get_rclone_binary_path().is_ok() {
+            candidates.push("bundled rclone available".to_string());
+        } else {
+            candidates.push("rclone (not found - will need to install or bundle)".to_string());
+        }
     }
 
     Ok(candidates)
@@ -60,10 +103,20 @@ pub async fn validate_rclone_config(rclone_bin: String, config_path: String) -> 
 
 #[command]
 pub async fn list_cloud_files(profile: Profile, path: Option<String>, max_depth: Option<u32>) -> Result<Vec<CloudFile>, String> {
-    let target = if let Some(subpath) = path {
-        format!("{}/{}", profile.destination(), subpath.trim_start_matches('/'))
+    // For admin users, show all files in the bucket (not restricted to their prefix)
+    // For regular users, restrict to their prefix
+    let base_target = if matches!(profile.profile_type, crate::models::ProfileType::Admin) {
+        // Admin sees the entire bucket
+        format!("{}:{}", profile.remote, profile.bucket)
     } else {
+        // Regular users see only their prefix
         profile.destination()
+    };
+    
+    let target = if let Some(subpath) = path {
+        format!("{}/{}", base_target, subpath.trim_start_matches('/'))
+    } else {
+        base_target
     };
 
     let mut args = vec![
@@ -81,7 +134,8 @@ pub async fn list_cloud_files(profile: Profile, path: Option<String>, max_depth:
         args.push("--recursive".to_string());
     }
 
-    let output = Command::new(&profile.rclone_bin)
+    let rclone_binary = resolve_rclone_binary(&profile.rclone_bin)?;
+    let output = Command::new(&rclone_binary)
         .args(&args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -182,7 +236,8 @@ pub async fn backup_preview(profile: Profile) -> Result<BackupPreview, String> {
             args.push(flag.clone());
         }
 
-        let output = Command::new(&profile.rclone_bin)
+        let rclone_binary = resolve_rclone_binary(&profile.rclone_bin)?;
+        let output = Command::new(&rclone_binary)
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -278,9 +333,12 @@ pub async fn backup_run(profile: Profile, dry_run: bool) -> Result<BackupOperati
     let mut total_bytes = 0u64;
 
     for source in &profile.sources {
+        // Resolve the actual rclone binary path
+        let rclone_binary = resolve_rclone_binary(&profile.rclone_bin)?;
+        
         // Debug: Check if rclone binary exists
-        if !Path::new(&profile.rclone_bin).exists() && profile.rclone_bin != "rclone" {
-            return Err(format!("Rclone binary not found at path: {}", profile.rclone_bin));
+        if !Path::new(&rclone_binary).exists() && rclone_binary != "rclone" {
+            return Err(format!("Rclone binary not found at path: {}", rclone_binary));
         }
 
         // Debug: Check if source directory exists
@@ -313,13 +371,13 @@ pub async fn backup_run(profile: Profile, dry_run: bool) -> Result<BackupOperati
             args.push(flag.clone());
         }
 
-        let output = Command::new(&profile.rclone_bin)
+        let output = Command::new(&rclone_binary)
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
             .await
-            .map_err(|e| format!("Failed to execute rclone command '{}' with args {:?}: {}", profile.rclone_bin, args, e))?;
+            .map_err(|e| format!("Failed to execute rclone command '{}' with args {:?}: {}", rclone_binary, args, e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -405,7 +463,8 @@ pub async fn restore_files(profile: Profile, remote_paths: Vec<String>, local_ta
             "--fast-list".to_string(),
         ];
 
-        let output = Command::new(&profile.rclone_bin)
+        let rclone_binary = resolve_rclone_binary(&profile.rclone_bin)?;
+        let output = Command::new(&rclone_binary)
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

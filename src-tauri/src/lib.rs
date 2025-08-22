@@ -3,13 +3,14 @@ mod rclone;
 mod config;
 mod schedule;
 mod aws;
-mod dependencies;
+mod downloader;
 
 use rclone::*;
 use config::*;
 use schedule::*;
 use aws::*;
-use dependencies::*;
+// use dependencies::*; // Removed - using downloader
+use downloader::*;
 
 #[tauri::command]
 async fn ping() -> String {
@@ -50,11 +51,15 @@ pub fn run() {
             setup_aws_infrastructure,
             generate_employee_rclone_config,
             get_employee_credentials,
-            check_dependencies,
-            install_dependency
+            // check_dependencies, // Removed - using downloader
+            // install_dependency, // Removed - using downloader
+            download_dependencies,
+            check_dependencies_needed,
+            get_rclone_path,
+            get_aws_path
         ])
         .setup(|app| {
-            let app_handle = app.handle();
+            let app_handle = app.handle().clone();
             
             // Initialize configuration directory
             tauri::async_runtime::spawn(async move {

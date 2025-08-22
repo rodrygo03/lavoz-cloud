@@ -3,14 +3,6 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct DependencyStatus {
-    pub name: String,
-    pub installed: bool,
-    pub version: Option<String>,
-    pub install_command: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Profile {
     pub id: String,
     pub name: String,
@@ -182,11 +174,12 @@ impl Default for AppConfig {
 impl Profile {
     pub fn new(name: String, profile_type: ProfileType) -> Self {
         let now = Utc::now();
+        
         Self {
             id: Uuid::new_v4().to_string(),
             name,
             profile_type,
-            rclone_bin: String::new(),
+            rclone_bin: "bundled".to_string(), // Will be resolved to extracted path at runtime
             rclone_conf: String::new(),
             remote: "aws".to_string(),
             bucket: String::new(),

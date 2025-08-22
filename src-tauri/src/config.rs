@@ -134,44 +134,18 @@ pub async fn set_active_profile(profile_id: String) -> Result<(), String> {
 
 #[command]
 pub async fn auto_configure_rclone(profile_id: String) -> Result<Profile, String> {
-    // Detect rclone binary
-    let rclone_paths = vec![
-        "/opt/homebrew/bin/rclone",
-        "/usr/local/bin/rclone", 
-        "/usr/bin/rclone",
-        "rclone"
-    ];
-    
-    let mut rclone_bin = None;
-    for path in rclone_paths {
-        let result = Command::new(path)
-            .arg("version")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await;
-            
-        if let Ok(output) = result {
-            if output.status.success() {
-                rclone_bin = Some(path.to_string());
-                break;
-            }
-        }
-    }
-    
-    let rclone_binary = rclone_bin.ok_or("Could not find rclone binary. Please install rclone first.")?;
+    // Use bundled rclone - no need to detect system installation
     
     // Set default rclone config path
     let config_dir = get_config_dir()?;
     let rclone_conf = config_dir.join("rclone.conf").to_string_lossy().to_string();
     
-    // Update profile with detected paths
+    // Update profile with rclone config path (rclone_bin is already set to "bundled")
     let mut config = load_config().await?;
     let profile = config.profiles.iter_mut()
         .find(|p| p.id == profile_id)
         .ok_or("Profile not found")?;
         
-    profile.rclone_bin = rclone_binary;
     profile.rclone_conf = rclone_conf;
     profile.updated_at = Utc::now();
     

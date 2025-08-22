@@ -365,5 +365,21 @@
     "aboutDependencies": "Acerca de Estas Dependencias",
     "awsCliDescription": "Requerido para configurar credenciales de AWS y administrar buckets S3 y usuarios IAM.",
     "rcloneDescription": "La herramienta principal de respaldo que sincroniza archivos al almacenamiento en la nube."
+  },
+  "download": {
+    "title": "Configurando Dependencias",
+    "description": "Cloud Backup está instalando las herramientas necesarias vía Homebrew. Esto ocurre automáticamente en el primer inicio.",
+    "complete": "¡Configuración Completada!",
+    "completeDesc": "Todas las dependencias han sido instaladas exitosamente vía Homebrew.",
+    "start": "Instalar Dependencias",
+    "downloading": "Instalando...",
+    "brewDesc": "Gestor de paquetes de macOS",
+    "rcloneDesc": "Herramienta de sincronización de archivos",
+    "awsDesc": "Interfaz de línea de comandos de AWS",
+    "aboutDownload": "Acerca de Esta Configuración",
+    "aboutDesc": "Estamos instalando las últimas versiones de Homebrew, rclone y AWS CLI para funcionalidad perfecta de respaldo en la nube.",
+    "brewHelp": "El gestor de paquetes que faltaba en macOS - usado para instalar y gestionar rclone y AWS CLI.",
+    "rcloneHelp": "Utilizado para sincronizar archivos al almacenamiento en la nube con características avanzadas y confiabilidad.",
+    "awsHelp": "Requerido para la autenticación AWS S3 y operaciones de administración de buckets."
   }
 }

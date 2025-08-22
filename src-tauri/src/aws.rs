@@ -3,10 +3,23 @@ use tauri::command;
 use tokio::process::Command;
 
 use crate::models::*;
+use crate::downloader::get_aws_binary_path;
+
+/// Get AWS binary path using bundled or system AWS CLI
+fn get_aws_command() -> Result<String, String> {
+    // Use the sidecar function to get the correct path
+    if let Ok(aws_path) = get_aws_binary_path() {
+        return Ok(aws_path.to_string_lossy().to_string());
+    }
+    
+    // Fallback to aws in PATH
+    Ok("aws".to_string())
+}
 
 #[command]
 pub async fn check_aws_credentials() -> Result<bool, String> {
-    let output = Command::new("aws")
+    let aws_cmd = get_aws_command()?;
+    let output = Command::new(aws_cmd)
         .args(&["sts", "get-caller-identity"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -42,7 +55,8 @@ pub async fn configure_aws_credentials(
             format!("profile.{}.{}", profile, key),
             value.to_string()
         ];
-        let output = Command::new("aws")
+        let aws_cmd = get_aws_command()?;
+        let output = Command::new(aws_cmd)
             .args(&cmd_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -57,7 +71,8 @@ pub async fn configure_aws_credentials(
     }
 
     // Test the credentials
-    let test_output = Command::new("aws")
+    let aws_cmd = get_aws_command()?;
+    let test_output = Command::new(aws_cmd)
         .args(&["sts", "get-caller-identity", "--profile", &profile])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -79,7 +94,8 @@ pub async fn validate_aws_permissions(profile_name: Option<String>) -> Result<St
     let profile = profile_name.unwrap_or_else(|| "default".to_string());
     
     // Get caller identity to check if credentials work
-    let output = Command::new("aws")
+    let aws_cmd = get_aws_command()?;
+    let output = Command::new(aws_cmd)
         .args(&["sts", "get-caller-identity", "--profile", &profile])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -443,9 +459,9 @@ fn parse_setup_output(
     output: &str,
     bucket_name: String,
     region: String,
-    admin_username: String,
+    _admin_username: String,
     lifecycle_config: LifecycleConfig,
-    employee_names: Vec<String>
+    _employee_names: Vec<String>
 ) -> Result<AwsConfig, String> {
     let mut admin_key = String::new();
     let mut admin_secret = String::new();

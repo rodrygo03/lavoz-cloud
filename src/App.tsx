@@ -9,7 +9,7 @@ import Settings from './components/Settings';
 import UserManagement from './components/UserManagement';
 import AdminSetup from './components/AdminSetup';
 import UserSetup from './components/UserSetup';
-import DependencyChecker from './components/DependencyChecker';
+import DependencyDownloader from './components/DependencyDownloader';
 import { Profile } from './types';
 import './i18n';
 import "./App.css";
@@ -21,10 +21,41 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [showSetup, setShowSetup] = useState<'none' | 'admin' | 'user'>('none');
   const [dependenciesReady, setDependenciesReady] = useState(false);
+  const [checkingDependencies, setCheckingDependencies] = useState(true);
 
   useEffect(() => {
-    loadProfiles();
+    checkDependenciesAndLoadProfiles();
   }, []);
+
+  const checkDependenciesAndLoadProfiles = async () => {
+    try {
+      console.log('Checking if dependencies need to be downloaded...');
+      // Check if dependencies need to be downloaded
+      const needsDownload = await invoke<boolean>('check_dependencies_needed');
+      console.log('Dependencies needed:', needsDownload);
+      
+      if (!needsDownload) {
+        // Dependencies already installed, proceed normally
+        console.log('Dependencies already installed, proceeding...');
+        setDependenciesReady(true);
+        setCheckingDependencies(false);
+        setLoading(false); // Make sure loading is false
+        await loadProfiles();
+      } else {
+        // Need to download dependencies
+        console.log('Need to download dependencies, showing downloader...');
+        setCheckingDependencies(false);
+        setLoading(false); // Make sure loading is false so we can show the downloader
+      }
+    } catch (error) {
+      console.error('Failed to check dependencies:', error);
+      setCheckingDependencies(false);
+      setLoading(false); // Make sure loading is false
+      // Set dependencies as ready to proceed anyway
+      setDependenciesReady(true);
+      await loadProfiles();
+    }
+  };
 
   const loadProfiles = async () => {
     try {
@@ -67,8 +98,25 @@ function App() {
     );
   }
 
+  console.log('Render state:', { checkingDependencies, dependenciesReady, loading });
+
+  if (checkingDependencies) {
+    console.log('Showing loading screen');
+    return (
+      <div className="loading-container">
+        <div className="loading-spinner"></div>
+        <p>{t('common.loading')}</p>
+      </div>
+    );
+  }
+
   if (!dependenciesReady) {
-    return <DependencyChecker onAllDependenciesReady={() => setDependenciesReady(true)} />;
+    console.log('Showing dependency downloader');
+    return <DependencyDownloader onDownloadComplete={() => {
+      console.log('Download completed, setting dependencies ready');
+      setDependenciesReady(true);
+      loadProfiles();
+    }} />;
   }
 
   if (showSetup === 'admin') {

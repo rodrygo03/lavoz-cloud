@@ -219,7 +219,14 @@ export default function CloudBrowser({ profile }: CloudBrowserProps) {
       <div className="browser-header">
         <h1>{t('cloudBrowser.title')}</h1>
         <div className="profile-destination">
-          {profile.remote}:{profile.bucket}/{profile.prefix}
+          {profile.profile_type === 'Admin' ? (
+            <>
+              {profile.remote}:{profile.bucket} 
+              <span className="admin-badge">(Admin View - All Users)</span>
+            </>
+          ) : (
+            `${profile.remote}:${profile.bucket}/${profile.prefix}`
+          )}
         </div>
       </div>
 
