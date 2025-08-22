@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useTranslation } from 'react-i18next';
 // import { open } from '@tauri-apps/plugin-opener';
 import { 
   ArrowRight, 
@@ -7,7 +8,8 @@ import {
   Folder, 
   FolderOpen,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  // Globe
 } from 'lucide-react';
 import { Profile, BackupMode } from '../types';
 
@@ -17,6 +19,7 @@ interface OnboardingProps {
 }
 
 interface FormData {
+  language: string;
   name: string;
   rclone_bin: string;
   rclone_conf: string;
@@ -28,8 +31,10 @@ interface FormData {
 }
 
 export default function Onboarding({ onProfileCreated }: OnboardingProps) {
+  const { t, i18n } = useTranslation();
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState<FormData>({
+    language: i18n.language,
     name: '',
     rclone_bin: '',
     rclone_conf: '',
@@ -68,19 +73,19 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
       switch (step) {
         case 0: // Profile name
           if (!formData.name.trim()) {
-            errors.name = 'Profile name is required';
+            errors.name = t('onboarding.profileNameRequired');
           }
           break;
 
         case 1: // Rclone binary
           if (!formData.rclone_bin) {
-            errors.rclone_bin = 'Rclone binary path is required';
+            errors.rclone_bin = t('onboarding.rcloneBinaryRequired');
           }
           break;
 
         case 2: // Rclone config
           if (!formData.rclone_conf) {
-            errors.rclone_conf = 'Rclone config path is required';
+            errors.rclone_conf = t('onboarding.rcloneConfigRequired');
           } else {
             try {
               const isValid = await invoke<boolean>('validate_rclone_config', {
@@ -88,23 +93,23 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
                 configPath: formData.rclone_conf
               });
               if (!isValid) {
-                errors.rclone_conf = 'Invalid rclone config file';
+                errors.rclone_conf = t('onboarding.invalidRcloneConfig');
               }
             } catch (error) {
-              errors.rclone_conf = 'Failed to validate rclone config';
+              errors.rclone_conf = t('onboarding.failedToValidateConfig');
             }
           }
           break;
 
         case 3: // Remote config
-          if (!formData.remote) errors.remote = 'Remote name is required';
-          if (!formData.bucket) errors.bucket = 'Bucket name is required';
-          if (!formData.prefix) errors.prefix = 'Prefix is required';
+          if (!formData.remote) errors.remote = t('onboarding.remoteNameRequired');
+          if (!formData.bucket) errors.bucket = t('onboarding.bucketNameRequired');
+          if (!formData.prefix) errors.prefix = t('onboarding.prefixRequired');
           break;
 
         case 4: // Sources
           if (formData.sources.length === 0) {
-            errors.sources = 'At least one source folder is required';
+            errors.sources = t('onboarding.sourceFoldersRequired');
           }
           break;
       }
@@ -153,7 +158,7 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
       onProfileCreated();
     } catch (error) {
       console.error('Failed to create profile:', error);
-      alert('Failed to create profile: ' + error);
+      alert(t('onboarding.failedToCreateProfile') + error);
     } finally {
       setCreating(false);
     }
@@ -193,36 +198,76 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
     }
   };
 
+  const handleLanguageChange = async (language: string) => {
+    setFormData(prev => ({ ...prev, language }));
+    await i18n.changeLanguage(language);
+    
+    // Store the language preference in localStorage for persistence
+    localStorage.setItem('i18nextLng', language);
+  };
+
+  // Simple language toggle component
+  const LanguageToggle = () => (
+    <div style={{ display: 'flex', gap: '8px' }}>
+      <button
+        style={{
+          padding: '4px 8px',
+          border: '1px solid #ccc',
+          borderRadius: '4px',
+          background: formData.language === 'en' ? '#007bff' : '#fff',
+          color: formData.language === 'en' ? '#fff' : '#000',
+          cursor: 'pointer'
+        }}
+        onClick={() => handleLanguageChange('en')}
+      >
+        EN
+      </button>
+      <button
+        style={{
+          padding: '4px 8px',
+          border: '1px solid #ccc',
+          borderRadius: '4px',
+          background: formData.language === 'es' ? '#007bff' : '#fff',
+          color: formData.language === 'es' ? '#fff' : '#000',
+          cursor: 'pointer'
+        }}
+        onClick={() => handleLanguageChange('es')}
+      >
+        ES
+      </button>
+    </div>
+  );
+
   const steps = [
     {
-      title: 'Profile Name',
-      description: 'Give your backup profile a name',
+      title: t('onboarding.profileName'),
+      description: t('onboarding.profileNameDescription'),
       content: (
         <div className="form-group">
-          <label htmlFor="profile-name">Profile Name</label>
+          <label htmlFor="profile-name">{t('onboarding.profileName')}</label>
           <input
             id="profile-name"
             type="text"
             value={formData.name}
             onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-            placeholder="e.g., Personal Backup, Work Files"
+            placeholder={t('onboarding.profileNamePlaceholder')}
             className={validationErrors.name ? 'error' : ''}
           />
           {validationErrors.name && (
             <div className="error-message">{validationErrors.name}</div>
           )}
           <div className="help-text">
-            Choose a descriptive name that helps you identify this backup configuration.
+            {t('onboarding.profileNameHelp')}
           </div>
         </div>
       )
     },
     {
-      title: 'Rclone Binary',
-      description: 'Select your rclone installation',
+      title: t('onboarding.rcloneBinary'),
+      description: t('onboarding.rcloneBinaryDescription'),
       content: (
         <div className="form-group">
-          <label htmlFor="rclone-bin">Rclone Binary Path</label>
+          <label htmlFor="rclone-bin">{t('onboarding.rcloneBinaryPath')}</label>
           <div className="rclone-candidates">
             {rcloneCandidates.map((candidate, index) => (
               <label key={index} className="radio-option">
@@ -242,7 +287,7 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
               type="text"
               value={formData.rclone_bin}
               onChange={(e) => setFormData(prev => ({ ...prev, rclone_bin: e.target.value }))}
-              placeholder="Custom path to rclone binary"
+              placeholder={t('onboarding.customPathPlaceholder')}
               className={validationErrors.rclone_bin ? 'error' : ''}
             />
             <button
@@ -259,7 +304,7 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
             <div className="error-message">{validationErrors.rclone_bin}</div>
           )}
           <div className="help-text">
-            If rclone is not installed, please install it first from{' '}
+            {t('onboarding.rcloneInstallHelp')}{' '}
             <a 
               href="https://rclone.org/install/"
               target="_blank"
@@ -273,18 +318,18 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
       )
     },
     {
-      title: 'Rclone Config',
-      description: 'Select your rclone configuration file',
+      title: t('onboarding.rcloneConfig'),
+      description: t('onboarding.rcloneConfigDescription'),
       content: (
         <div className="form-group">
-          <label htmlFor="rclone-conf">Rclone Config File</label>
+          <label htmlFor="rclone-conf">{t('onboarding.rcloneConfigFile')}</label>
           <div className="file-input">
             <input
               id="rclone-conf"
               type="text"
               value={formData.rclone_conf}
               onChange={(e) => setFormData(prev => ({ ...prev, rclone_conf: e.target.value }))}
-              placeholder="Path to rclone.conf"
+              placeholder={t('onboarding.rcloneConfigPlaceholder')}
               className={validationErrors.rclone_conf ? 'error' : ''}
             />
             <button
@@ -301,19 +346,18 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
             <div className="error-message">{validationErrors.rclone_conf}</div>
           )}
           <div className="help-text">
-            Select the rclone.conf file that contains your cloud storage credentials.
-            Usually located at ~/.config/rclone/rclone.conf
+            {t('onboarding.rcloneConfigHelp')}
           </div>
         </div>
       )
     },
     {
-      title: 'Cloud Storage',
-      description: 'Configure your cloud storage destination',
+      title: t('onboarding.cloudStorage'),
+      description: t('onboarding.cloudStorageDescription'),
       content: (
         <div className="form-groups">
           <div className="form-group">
-            <label htmlFor="remote">Remote Name</label>
+            <label htmlFor="remote">{t('onboarding.remoteName')}</label>
             <input
               id="remote"
               type="text"
@@ -328,13 +372,13 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
           </div>
 
           <div className="form-group">
-            <label htmlFor="bucket">Bucket Name</label>
+            <label htmlFor="bucket">{t('onboarding.bucketName')}</label>
             <input
               id="bucket"
               type="text"
               value={formData.bucket}
               onChange={(e) => setFormData(prev => ({ ...prev, bucket: e.target.value }))}
-              placeholder="my-backup-bucket"
+              placeholder={t('onboarding.bucketNamePlaceholder')}
               className={validationErrors.bucket ? 'error' : ''}
             />
             {validationErrors.bucket && (
@@ -343,31 +387,31 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
           </div>
 
           <div className="form-group">
-            <label htmlFor="prefix">Prefix</label>
+            <label htmlFor="prefix">{t('onboarding.prefix')}</label>
             <input
               id="prefix"
               type="text"
               value={formData.prefix}
               onChange={(e) => setFormData(prev => ({ ...prev, prefix: e.target.value }))}
-              placeholder="user-backups"
+              placeholder={t('onboarding.prefixPlaceholder')}
               className={validationErrors.prefix ? 'error' : ''}
             />
             {validationErrors.prefix && (
               <div className="error-message">{validationErrors.prefix}</div>
             )}
             <div className="help-text">
-              All backups will be stored under: {formData.bucket}/{formData.prefix}
+              {t('onboarding.prefixHelp', { bucket: formData.bucket, prefix: formData.prefix })}
             </div>
           </div>
         </div>
       )
     },
     {
-      title: 'Source Folders',
-      description: 'Select folders to backup',
+      title: t('onboarding.sourceFolders'),
+      description: t('onboarding.sourceFoldersDescription'),
       content: (
         <div className="form-group">
-          <label>Source Folders</label>
+          <label>{t('onboarding.sourceFoldersLabel')}</label>
           <div className="sources-list">
             {formData.sources.map((source, index) => (
               <div key={index} className="source-item">
@@ -375,7 +419,7 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
                   type="text"
                   value={source}
                   onChange={(e) => updateSource(index, e.target.value)}
-                  placeholder="Path to folder"
+                  placeholder={t('onboarding.pathToFolderPlaceholder')}
                 />
                 <button
                   type="button"
@@ -399,7 +443,7 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
             className="btn btn-secondary"
             onClick={addSource}
           >
-            Add Folder
+            {t('onboarding.addFolder')}
           </button>
           {validationErrors.sources && (
             <div className="error-message">{validationErrors.sources}</div>
@@ -408,11 +452,11 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
       )
     },
     {
-      title: 'Backup Mode',
-      description: 'Choose how backups should work',
+      title: t('onboarding.backupMode'),
+      description: t('onboarding.backupModeDescription'),
       content: (
         <div className="form-group">
-          <label>Backup Mode</label>
+          <label>{t('onboarding.backupMode')}</label>
           <div className="backup-modes">
             <label className="radio-option detailed">
               <input
@@ -425,11 +469,10 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
               <div className="option-content">
                 <div className="option-title">
                   <CheckCircle size={16} className="text-green" />
-                  Copy Mode (Recommended)
+                  {t('onboarding.copyModeRecommended')}
                 </div>
                 <div className="option-description">
-                  Only copies new and changed files to the cloud. Never deletes files from the cloud.
-                  Safe for daily automated backups.
+                  {t('onboarding.copyModeInfo')}
                 </div>
               </div>
             </label>
@@ -445,11 +488,10 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
               <div className="option-content">
                 <div className="option-title">
                   <AlertCircle size={16} className="text-orange" />
-                  Sync Mode (Advanced)
+                  {t('onboarding.syncModeAdvanced')}
                 </div>
                 <div className="option-description">
-                  Makes the cloud exactly match your local folders. May delete files from the cloud.
-                  Requires confirmation before running.
+                  {t('onboarding.syncModeInfo')}
                 </div>
               </div>
             </label>
@@ -461,13 +503,27 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
 
   const currentStepData = steps[currentStep];
 
+
+  if (!currentStepData) {
+    return (
+      <div className="onboarding">
+        <div className="onboarding-container">
+          <div className="error">Step data not found for step {currentStep}</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="onboarding">
       <div className="onboarding-container">
         <div className="onboarding-header">
-          <h1>Setup Cloud Backup</h1>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+            <h1>{t('onboarding.title')}</h1>
+            <LanguageToggle />
+          </div>
           <div className="step-indicator">
-            Step {currentStep + 1} of {steps.length}
+            {t('onboarding.stepOf', { current: currentStep + 1, total: steps.length })}
           </div>
         </div>
 
@@ -497,7 +553,7 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
                 onClick={prevStep}
               >
                 <ArrowLeft size={16} />
-                Back
+                {t('common.back')}
               </button>
             )}
           </div>
@@ -509,7 +565,7 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
                 onClick={nextStep}
                 disabled={isValidating}
               >
-                {isValidating ? 'Validating...' : 'Next'}
+                {isValidating ? t('onboarding.validating') : t('common.next')}
                 <ArrowRight size={16} />
               </button>
             ) : (
@@ -518,7 +574,7 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
                 onClick={handleCreateProfile}
                 disabled={creating}
               >
-                {creating ? 'Creating...' : 'Create Profile'}
+                {creating ? t('onboarding.creating') : t('onboarding.createProfile')}
               </button>
             )}
           </div>

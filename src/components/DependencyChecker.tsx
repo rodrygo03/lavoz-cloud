@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { 
   CheckCircle, 
@@ -14,6 +15,7 @@ interface DependencyCheckerProps {
 }
 
 export default function DependencyChecker({ onAllDependenciesReady }: DependencyCheckerProps) {
+  const { t, i18n } = useTranslation();
   const [dependencies, setDependencies] = useState<DependencyStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [installing, setInstalling] = useState<Record<string, boolean>>({});
@@ -72,13 +74,54 @@ export default function DependencyChecker({ onAllDependenciesReady }: Dependency
   const allDependenciesInstalled = dependencies.every(dep => dep.installed);
   const hasUninstalledDependencies = dependencies.some(dep => !dep.installed);
 
+  // Language toggle component
+  const LanguageToggle = () => (
+    <div style={{ display: 'flex', gap: '8px' }}>
+      <button
+        style={{
+          padding: '4px 8px',
+          border: '1px solid #ccc',
+          borderRadius: '4px',
+          background: i18n.language === 'en' ? '#007bff' : '#fff',
+          color: i18n.language === 'en' ? '#fff' : '#000',
+          cursor: 'pointer'
+        }}
+        onClick={() => {
+          i18n.changeLanguage('en');
+          localStorage.setItem('i18nextLng', 'en');
+        }}
+      >
+        EN
+      </button>
+      <button
+        style={{
+          padding: '4px 8px',
+          border: '1px solid #ccc',
+          borderRadius: '4px',
+          background: i18n.language === 'es' ? '#007bff' : '#fff',
+          color: i18n.language === 'es' ? '#fff' : '#000',
+          cursor: 'pointer'
+        }}
+        onClick={() => {
+          i18n.changeLanguage('es');
+          localStorage.setItem('i18nextLng', 'es');
+        }}
+      >
+        ES
+      </button>
+    </div>
+  );
+
   if (loading) {
     return (
       <div className="dependency-checker loading">
         <div className="loading-container">
+          <div style={{ position: 'absolute', top: '20px', right: '20px' }}>
+            <LanguageToggle />
+          </div>
           <div className="loading-spinner"></div>
-          <h2>Checking Dependencies</h2>
-          <p>Verifying required tools are installed...</p>
+          <h2>{t('dependencies.checkingDependencies')}</h2>
+          <p>{t('dependencies.verifyingTools')}</p>
         </div>
       </div>
     );
@@ -89,8 +132,8 @@ export default function DependencyChecker({ onAllDependenciesReady }: Dependency
       <div className="dependency-checker success">
         <div className="success-container">
           <CheckCircle size={48} className="success-icon" />
-          <h2>All Dependencies Ready</h2>
-          <p>All required tools are installed and ready to use.</p>
+          <h2>{t('dependencies.allReady')}</h2>
+          <p>{t('dependencies.allReadyDesc')}</p>
         </div>
       </div>
     );
@@ -100,11 +143,11 @@ export default function DependencyChecker({ onAllDependenciesReady }: Dependency
     <div className="dependency-checker">
       <div className="checker-container">
         <div className="checker-header">
-          <h1>Dependency Check</h1>
-          <p>
-            Cloud Backup requires some external tools to function properly. 
-            Please install the missing dependencies below.
-          </p>
+          <div style={{ position: 'absolute', top: '20px', right: '20px' }}>
+            <LanguageToggle />
+          </div>
+          <h1>{t('dependencies.title')}</h1>
+          <p>{t('dependencies.description')}</p>
         </div>
 
         <div className="dependencies-list">
@@ -126,7 +169,7 @@ export default function DependencyChecker({ onAllDependenciesReady }: Dependency
                   
                   {dependency.installed && dependency.version && (
                     <div className="dependency-version">
-                      Version: {dependency.version}
+                      {t('common.version')}: {dependency.version}
                     </div>
                   )}
                 </div>
@@ -141,12 +184,12 @@ export default function DependencyChecker({ onAllDependenciesReady }: Dependency
                       {installing[dependency.name] ? (
                         <>
                           <RefreshCw size={16} className="spinning" />
-                          Installing...
+                          {t('dependencies.installing')}
                         </>
                       ) : (
                         <>
                           <Download size={16} />
-                          Install
+                          {t('dependencies.install')}
                         </>
                       )}
                     </button>
@@ -157,12 +200,12 @@ export default function DependencyChecker({ onAllDependenciesReady }: Dependency
               {!dependency.installed && (
                 <div className="dependency-details">
                   <div className="install-command">
-                    <strong>Manual Installation:</strong>
+                    <strong>{t('dependencies.manualInstallation')}:</strong>
                     <code>{dependency.install_command}</code>
                     <button
                       className="btn-icon"
                       onClick={() => navigator.clipboard.writeText(dependency.install_command)}
-                      title="Copy command"
+                      title={t('dependencies.copyCommand')}
                     >
                       <ExternalLink size={14} />
                     </button>
@@ -186,7 +229,7 @@ export default function DependencyChecker({ onAllDependenciesReady }: Dependency
             disabled={loading}
           >
             <RefreshCw size={16} />
-            Recheck Dependencies
+            {t('dependencies.recheckDependencies')}
           </button>
 
           {!hasUninstalledDependencies && (
@@ -194,19 +237,19 @@ export default function DependencyChecker({ onAllDependenciesReady }: Dependency
               className="btn btn-primary"
               onClick={onAllDependenciesReady}
             >
-              Continue
+              {t('common.continue')}
             </button>
           )}
         </div>
 
         <div className="help-section">
-          <h3>About These Dependencies</h3>
+          <h3>{t('dependencies.aboutDependencies')}</h3>
           <div className="help-items">
             <div className="help-item">
-              <strong>AWS CLI:</strong> Required for configuring AWS credentials and managing S3 buckets and IAM users.
+              <strong>AWS CLI:</strong> {t('dependencies.awsCliDescription')}
             </div>
             <div className="help-item">
-              <strong>rclone:</strong> The core backup tool that synchronizes files to cloud storage.
+              <strong>rclone:</strong> {t('dependencies.rcloneDescription')}
             </div>
           </div>
         </div>

@@ -15,7 +15,7 @@ import './i18n';
 import "./App.css";
 
 function App() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeProfile, setActiveProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -89,10 +89,52 @@ function App() {
     );
   }
 
+  // Language toggle component
+  const LanguageToggle = () => (
+    <div style={{ display: 'flex', gap: '8px' }}>
+      <button
+        style={{
+          padding: '4px 8px',
+          border: '1px solid #ccc',
+          borderRadius: '4px',
+          background: i18n.language === 'en' ? '#007bff' : '#fff',
+          color: i18n.language === 'en' ? '#fff' : '#000',
+          cursor: 'pointer'
+        }}
+        onClick={() => {
+          i18n.changeLanguage('en');
+          localStorage.setItem('i18nextLng', 'en');
+        }}
+      >
+        EN
+      </button>
+      <button
+        style={{
+          padding: '4px 8px',
+          border: '1px solid #ccc',
+          borderRadius: '4px',
+          background: i18n.language === 'es' ? '#007bff' : '#fff',
+          color: i18n.language === 'es' ? '#fff' : '#000',
+          cursor: 'pointer'
+        }}
+        onClick={() => {
+          i18n.changeLanguage('es');
+          localStorage.setItem('i18nextLng', 'es');
+        }}
+      >
+        ES
+      </button>
+    </div>
+  );
+
   if (profiles.length === 0) {
     return (
       <div className="setup-type-selection">
         <div className="selection-container">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: '1rem' }}>
+            <div></div>
+            <LanguageToggle />
+          </div>
           <h1>{t('app.welcome')}</h1>
           <p>{t('app.chooseSetupType')}</p>
           

@@ -43,6 +43,13 @@ export default function CloudBrowser({ profile }: CloudBrowserProps) {
   const loadFiles = async (path: string) => {
     if (!profile) return;
 
+    // Check if profile has required configuration
+    if (!profile.bucket || !profile.prefix) {
+      console.log('Profile is missing required configuration (bucket or prefix)');
+      setFiles([]);
+      return;
+    }
+
     setLoading(true);
     try {
       const cloudFiles = await invoke<CloudFile[]>('list_cloud_files', {
@@ -53,15 +60,24 @@ export default function CloudBrowser({ profile }: CloudBrowserProps) {
       setFiles(cloudFiles);
     } catch (error) {
       console.error('Failed to load cloud files:', error);
-      const errorStr = String(error);
+      const errorStr = String(error).toLowerCase();
       
-      // Handle empty bucket gracefully - don't show popup for "No such file or directory"
-      if (errorStr.includes('No such file or directory') || errorStr.includes('os error 2')) {
-        console.log('Bucket appears to be empty or path does not exist');
+      // Handle common scenarios gracefully - don't show popup for these cases
+      if (errorStr.includes('no such file or directory') || 
+          errorStr.includes('os error 2') ||
+          errorStr.includes('not found') ||
+          errorStr.includes('empty bucket') ||
+          errorStr.includes('no objects') ||
+          errorStr.includes('bucket is empty') ||
+          errorStr.includes('404') ||
+          errorStr.includes('does not exist')) {
+        console.log('Bucket appears to be empty or path does not exist:', error);
         setFiles([]);
       } else {
         // Only show alert for actual errors, not empty buckets
-        alert('Failed to load files: ' + error);
+        console.error('Actual error loading files:', error);
+        // Replace alert with console.error to avoid popup
+        // alert('Failed to load files: ' + error);
       }
     } finally {
       setLoading(false);

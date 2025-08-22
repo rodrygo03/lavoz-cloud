@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { 
   ArrowRight, 
@@ -26,6 +27,7 @@ interface SetupData {
 }
 
 export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProps) {
+  const { t, i18n } = useTranslation();
   const [currentStep, setCurrentStep] = useState(0);
   const [setupData, setSetupData] = useState<SetupData>({
     aws_access_key_id: '',
@@ -61,8 +63,8 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
     console.log('Configure AWS button clicked');
     const errors: Record<string, string> = {};
 
-    if (!setupData.aws_access_key_id) errors.aws_access_key_id = 'AWS Access Key ID is required';
-    if (!setupData.aws_secret_access_key) errors.aws_secret_access_key = 'AWS Secret Access Key is required';
+    if (!setupData.aws_access_key_id) errors.aws_access_key_id = t('adminSetup.awsAccessKeyIdRequired');
+    if (!setupData.aws_secret_access_key) errors.aws_secret_access_key = t('adminSetup.awsSecretAccessKeyRequired');
 
     setValidationErrors(errors);
     if (Object.keys(errors).length > 0) {
@@ -110,11 +112,11 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
 
     switch (step) {
       case 1: // Infrastructure settings
-        if (!setupData.admin_username) errors.admin_username = 'Admin username is required';
-        if (!setupData.bucket_name) errors.bucket_name = 'Bucket name is required';
+        if (!setupData.admin_username) errors.admin_username = t('adminSetup.adminUsernameRequired');
+        if (!setupData.bucket_name) errors.bucket_name = t('adminSetup.bucketNameRequired');
         break;
       case 2: // Employees
-        if (setupData.employees.length === 0) errors.employees = 'At least one employee is required';
+        if (setupData.employees.length === 0) errors.employees = t('adminSetup.employeesRequired');
         break;
     }
 
@@ -124,7 +126,7 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
 
   const nextStep = () => {
     if (currentStep === 0 && !awsConfigured) {
-      alert('Please configure AWS credentials first');
+      alert(t('adminSetup.pleaseConfigureAwsFirst'));
       return;
     }
 
@@ -207,27 +209,27 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
 
   const steps = [
     {
-      title: 'AWS Credentials',
-      description: 'Configure your AWS access credentials for admin operations',
+      title: t('adminSetup.awsCredentials'),
+      description: t('adminSetup.awsCredentialsDescription'),
       content: (
         <div className="space-y-6">
           {awsConfigured ? (
             <div className="success-message">
               <CheckCircle size={20} />
-              <span>AWS credentials are configured and validated</span>
+              <span>{t('adminSetup.credentialsConfigured')}</span>
             </div>
           ) : (
             <>
               <div className="info-box">
                 <AlertCircle size={16} />
                 <div>
-                  <strong>Admin AWS Credentials Required</strong>
-                  <p>You need AWS credentials with administrative permissions to create S3 buckets, IAM users, and policies. These credentials will be used to set up the backup infrastructure for your organization.</p>
+                  <strong>{t('adminSetup.adminCredentialsRequired')}</strong>
+                  <p>{t('adminSetup.adminCredentialsInfo')}</p>
                 </div>
               </div>
 
               <div className="form-group">
-                <label htmlFor="aws-access-key-id">AWS Access Key ID</label>
+                <label htmlFor="aws-access-key-id">{t('adminSetup.awsAccessKeyId')}</label>
                 <input
                   id="aws-access-key-id"
                   type="text"
@@ -242,7 +244,7 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
               </div>
 
               <div className="form-group">
-                <label htmlFor="aws-secret-access-key">AWS Secret Access Key</label>
+                <label htmlFor="aws-secret-access-key">{t('adminSetup.awsSecretAccessKey')}</label>
                 <input
                   id="aws-secret-access-key"
                   type="password"
@@ -257,25 +259,25 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
               </div>
 
               <div className="form-group">
-                <label htmlFor="aws-region">AWS Region</label>
+                <label htmlFor="aws-region">{t('adminSetup.awsRegion')}</label>
                 <select
                   id="aws-region"
                   value={setupData.aws_region}
                   onChange={(e) => setSetupData(prev => ({ ...prev, aws_region: e.target.value }))}
                 >
-                  <option value="us-east-1">US East (N. Virginia)</option>
-                  <option value="us-west-2">US West (Oregon)</option>
-                  <option value="eu-west-1">Europe (Ireland)</option>
-                  <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
+                  <option value="us-east-1">{t('adminSetup.usEastVirginia')}</option>
+                  <option value="us-west-2">{t('adminSetup.usWestOregon')}</option>
+                  <option value="eu-west-1">{t('adminSetup.europeIreland')}</option>
+                  <option value="ap-southeast-1">{t('adminSetup.asiaSeattle')}</option>
                 </select>
               </div>
 
               <div className="security-note">
-                <h4>Security Notes:</h4>
+                <h4>{t('adminSetup.securityNotes')}</h4>
                 <ul>
-                  <li>Your credentials are stored securely using AWS CLI configuration</li>
-                  <li>We recommend using IAM credentials with only the necessary permissions</li>
-                  <li>Consider enabling MFA on your AWS account for additional security</li>
+                  <li>{t('adminSetup.securityNote1')}</li>
+                  <li>{t('adminSetup.securityNote2')}</li>
+                  <li>{t('adminSetup.securityNote3')}</li>
                 </ul>
               </div>
 
@@ -284,7 +286,7 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
                 onClick={configureAWS}
                 disabled={isConfiguring}
               >
-                {isConfiguring ? 'Validating...' : 'Configure & Validate Credentials'}
+                {isConfiguring ? t('adminSetup.validating') : t('adminSetup.configureValidateCredentials')}
               </button>
             </>
           )}
@@ -292,13 +294,13 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
       )
     },
     {
-      title: 'Infrastructure Settings',
-      description: 'Configure your S3 bucket and storage settings',
+      title: t('adminSetup.infrastructureSettings'),
+      description: t('adminSetup.infrastructureDescription'),
       content: (
         <div className="space-y-6">
           <div className="form-row">
             <div className="form-group">
-              <label htmlFor="admin-username">Admin Username</label>
+              <label htmlFor="admin-username">{t('adminSetup.adminUsername')}</label>
               <input
                 id="admin-username"
                 type="text"
@@ -400,12 +402,12 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
       )
     },
     {
-      title: 'Employee Setup',
-      description: 'Add employees who will have backup access',
+      title: t('adminSetup.employeeSetup'),
+      description: t('adminSetup.employeeSetupDescription'),
       content: (
         <div className="space-y-6">
           <div className="form-group">
-            <label>Employees</label>
+            <label>{t('adminSetup.employeesLabel')}</label>
             <div className="employees-list">
               {setupData.employees.map((employee, index) => (
                 <div key={index} className="employee-item">
@@ -447,12 +449,12 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
       )
     },
     {
-      title: 'Review & Setup',
-      description: 'Review your configuration and create the infrastructure',
+      title: t('adminSetup.reviewSetup'),
+      description: t('adminSetup.reviewDescription'),
       content: (
         <div className="space-y-6">
           <div className="review-section">
-            <h3>Configuration Summary</h3>
+            <h3>{t('adminSetup.configurationSummary')}</h3>
             
             <div className="review-item">
               <strong>Admin Username:</strong> {setupData.admin_username}
@@ -463,11 +465,11 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
             </div>
             
             <div className="review-item">
-              <strong>Lifecycle Policy:</strong> {setupData.lifecycle_config.enabled ? 'Enabled' : 'Disabled'}
+              <strong>{t('adminSetup.lifecyclePolicy')}:</strong> {setupData.lifecycle_config.enabled ? t('adminSetup.enabled') : t('adminSetup.disabled')}
               {setupData.lifecycle_config.enabled && (
                 <div className="sub-items">
-                  <div>Standard-IA after {setupData.lifecycle_config.days_to_ia} days</div>
-                  <div>Glacier: {setupData.lifecycle_config.days_to_glacier === 999999 ? 'Never' : `after ${setupData.lifecycle_config.days_to_glacier} days`}</div>
+                  <div>{t('adminSetup.standardIAAfter')} {setupData.lifecycle_config.days_to_ia} {t('adminSetup.days')}</div>
+                  <div>{t('adminSetup.glacier')}: {setupData.lifecycle_config.days_to_glacier === 999999 ? t('adminSetup.never') : `${t('adminSetup.after')} ${setupData.lifecycle_config.days_to_glacier} ${t('adminSetup.days')}`}</div>
                 </div>
               )}
             </div>
@@ -495,12 +497,50 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
             onClick={setupInfrastructure}
             disabled={isConfiguring}
           >
-            {isConfiguring ? 'Setting up infrastructure...' : 'Create Infrastructure'}
+            {isConfiguring ? t('adminSetup.settingUpInfrastructure') : t('adminSetup.createInfrastructure')}
           </button>
         </div>
       )
     }
   ];
+
+  // Language toggle component
+  const LanguageToggle = () => (
+    <div style={{ display: 'flex', gap: '8px' }}>
+      <button
+        style={{
+          padding: '4px 8px',
+          border: '1px solid #ccc',
+          borderRadius: '4px',
+          background: i18n.language === 'en' ? '#007bff' : '#fff',
+          color: i18n.language === 'en' ? '#fff' : '#000',
+          cursor: 'pointer'
+        }}
+        onClick={() => {
+          i18n.changeLanguage('en');
+          localStorage.setItem('i18nextLng', 'en');
+        }}
+      >
+        EN
+      </button>
+      <button
+        style={{
+          padding: '4px 8px',
+          border: '1px solid #ccc',
+          borderRadius: '4px',
+          background: i18n.language === 'es' ? '#007bff' : '#fff',
+          color: i18n.language === 'es' ? '#fff' : '#000',
+          cursor: 'pointer'
+        }}
+        onClick={() => {
+          i18n.changeLanguage('es');
+          localStorage.setItem('i18nextLng', 'es');
+        }}
+      >
+        ES
+      </button>
+    </div>
+  );
 
   const currentStepData = steps[currentStep];
 
@@ -508,9 +548,12 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
     <div className="admin-setup">
       <div className="setup-container">
         <div className="setup-header">
-          <h1>Admin Setup</h1>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+            <h1>{t('adminSetup.title')}</h1>
+            <LanguageToggle />
+          </div>
           <div className="step-indicator">
-            Step {currentStep + 1} of {steps.length}
+            {t('adminSetup.stepOf', { current: currentStep + 1, total: steps.length })}
           </div>
         </div>
 
@@ -540,7 +583,7 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
                 onClick={prevStep}
               >
                 <ArrowLeft size={16} />
-                Back
+                {t('adminSetup.back')}
               </button>
             )}
             
@@ -548,7 +591,7 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
               className="btn btn-secondary"
               onClick={onCancel}
             >
-              Cancel
+              {t('adminSetup.cancel')}
             </button>
           </div>
 
@@ -558,7 +601,7 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
                 className="btn btn-primary"
                 onClick={nextStep}
               >
-                Next
+                {t('adminSetup.next')}
                 <ArrowRight size={16} />
               </button>
             )}

@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
+import { save } from '@tauri-apps/plugin-dialog';
 import { 
   Users, 
   Key, 
@@ -14,6 +16,7 @@ interface UserManagementProps {
 }
 
 export default function UserManagement({ profile }: UserManagementProps) {
+  const { t } = useTranslation();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [rcloneConfig, setRcloneConfig] = useState<string>('');
@@ -29,6 +32,7 @@ export default function UserManagement({ profile }: UserManagementProps) {
     if (!profile?.aws_config) return;
 
     try {
+      // Try backend function first
       const config = await invoke<string>('generate_employee_rclone_config', {
         employee,
         bucketName: profile.aws_config.bucket_name,
@@ -37,8 +41,20 @@ export default function UserManagement({ profile }: UserManagementProps) {
       setRcloneConfig(config);
       setSelectedEmployee(employee);
     } catch (error) {
-      console.error('Failed to generate rclone config:', error);
-      alert('Failed to generate rclone config: ' + error);
+      console.error('Backend generation failed, using client-side generation:', error);
+      
+      // Fallback: Generate config client-side
+      const config = `[aws]
+type = s3
+provider = AWS
+env_auth = false
+access_key_id = ${employee.access_key_id}
+secret_access_key = ${employee.secret_access_key}
+region = ${profile.aws_config.aws_region}
+acl = private`;
+      
+      setRcloneConfig(config);
+      setSelectedEmployee(employee);
     }
   };
 
@@ -57,18 +73,68 @@ export default function UserManagement({ profile }: UserManagementProps) {
     }));
   };
 
-  const downloadRcloneConfig = () => {
-    if (!rcloneConfig || !selectedEmployee) return;
+  const downloadRcloneConfig = async () => {
+    console.log('Download requested:', { hasConfig: !!rcloneConfig, hasEmployee: !!selectedEmployee });
+    
+    if (!rcloneConfig || !selectedEmployee) {
+      console.error('Cannot download: missing config or employee');
+      alert(t('userManagement.configNotGenerated') || 'Please generate the config first');
+      return;
+    }
 
-    const blob = new Blob([rcloneConfig], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `rclone-${selectedEmployee.username}.conf`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    try {
+      console.log('Using Tauri save dialog for config:', rcloneConfig.substring(0, 50) + '...');
+      
+      const filename = `rclone-${selectedEmployee.username}.conf`;
+      
+      // Use Tauri's save dialog
+      const filePath = await save({
+        defaultPath: filename,
+        filters: [{
+          name: 'Config Files',
+          extensions: ['conf']
+        }]
+      });
+
+      if (filePath) {
+        // Write the file using Tauri's writeFile
+        await invoke('write_text_file', {
+          path: filePath,
+          contents: rcloneConfig
+        });
+        
+        console.log('File saved successfully to:', filePath);
+        alert(t('userManagement.downloadSuccess', { filename: filePath }) || `✅ Config saved successfully!\n\nLocation: ${filePath}`);
+      } else {
+        console.log('User cancelled save dialog');
+      }
+      
+    } catch (error) {
+      console.error('Download failed:', error);
+      
+      // Fallback to browser download if Tauri method fails
+      console.log('Falling back to browser download...');
+      try {
+        const blob = new Blob([rcloneConfig], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `rclone-${selectedEmployee.username}.conf`;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 100);
+        
+        alert(t('userManagement.downloadSuccess', { filename: `rclone-${selectedEmployee.username}.conf` }) || '✅ Config downloaded to Downloads folder');
+      } catch (fallbackError) {
+        console.error('Fallback download also failed:', fallbackError);
+        alert(t('userManagement.downloadFailed') || 'Download failed: ' + error);
+      }
+    }
   };
 
   if (!profile || profile.profile_type !== 'Admin') {
@@ -76,8 +142,8 @@ export default function UserManagement({ profile }: UserManagementProps) {
       <div className="user-management">
         <div className="empty-state">
           <Users size={48} />
-          <h2>Admin Access Required</h2>
-          <p>This section is only available to administrator profiles.</p>
+          <h2>{t('userManagement.adminAccessRequired')}</h2>
+          <p>{t('userManagement.adminAccessRequiredDesc')}</p>
         </div>
       </div>
     );
@@ -88,8 +154,8 @@ export default function UserManagement({ profile }: UserManagementProps) {
       <div className="user-management">
         <div className="empty-state">
           <Users size={48} />
-          <h2>No AWS Configuration</h2>
-          <p>Complete the admin setup to manage users.</p>
+          <h2>{t('userManagement.noAwsConfiguration')}</h2>
+          <p>{t('userManagement.noAwsConfigurationDesc')}</p>
         </div>
       </div>
     );
@@ -98,15 +164,15 @@ export default function UserManagement({ profile }: UserManagementProps) {
   return (
     <div className="user-management">
       <div className="management-header">
-        <h1>User Management</h1>
-        <p>Manage employee access credentials and configurations</p>
+        <h1>{t('userManagement.title')}</h1>
+        <p>{t('userManagement.manageEmployeeAccounts')}</p>
       </div>
 
       <div className="management-content">
         <div className="employees-section">
           <div className="section-header">
-            <h2>Employees ({employees.length})</h2>
-            <button className="btn-icon" title="Refresh">
+            <h2>{t('userManagement.employees')} ({employees.length})</h2>
+            <button className="btn-icon" title={t('common.refresh')}>
               <RefreshCw size={16} />
             </button>
           </div>
@@ -114,7 +180,7 @@ export default function UserManagement({ profile }: UserManagementProps) {
           {employees.length === 0 ? (
             <div className="empty-state-small">
               <Users size={24} />
-              <p>No employees configured</p>
+              <p>{t('userManagement.noEmployeesConfigured')}</p>
             </div>
           ) : (
             <div className="employees-list">
@@ -124,7 +190,7 @@ export default function UserManagement({ profile }: UserManagementProps) {
                     <div className="employee-name">{employee.name}</div>
                     <div className="employee-username">@{employee.username}</div>
                     <div className="employee-created">
-                      Created: {new Date(employee.created_at).toLocaleDateString()}
+                      {t('userManagement.createdAt')}: {new Date(employee.created_at).toLocaleDateString()}
                     </div>
                   </div>
 
@@ -134,28 +200,28 @@ export default function UserManagement({ profile }: UserManagementProps) {
                       onClick={() => toggleCredentials(employee.id)}
                     >
                       <Key size={14} />
-                      {showCredentials[employee.id] ? 'Hide' : 'Show'} Credentials
+                      {showCredentials[employee.id] ? t('userManagement.hideCredentials') : t('userManagement.showCredentials')}
                     </button>
 
                     <button
                       className="btn btn-primary btn-small"
                       onClick={() => generateRcloneConfig(employee)}
                     >
-                      Generate Config
+                      {t('userManagement.generateConfig')}
                     </button>
                   </div>
 
                   {showCredentials[employee.id] && (
                     <div className="credentials-section">
-                      <h4>AWS Credentials</h4>
+                      <h4>{t('userManagement.awsCredentials')}</h4>
                       
                       <div className="credential-item">
-                        <label>Access Key ID</label>
+                        <label>{t('userManagement.accessKey')} ID</label>
                         <div className="credential-value">
                           <code>{employee.access_key_id}</code>
                           <button
                             className="btn-icon"
-                            onClick={() => copyToClipboard(employee.access_key_id, 'Access Key ID')}
+                            onClick={() => copyToClipboard(employee.access_key_id, t('userManagement.accessKey') + ' ID')}
                           >
                             <Copy size={14} />
                           </button>
@@ -163,12 +229,12 @@ export default function UserManagement({ profile }: UserManagementProps) {
                       </div>
 
                       <div className="credential-item">
-                        <label>Secret Access Key</label>
+                        <label>{t('userManagement.secretKey')}</label>
                         <div className="credential-value">
                           <code>{employee.secret_access_key}</code>
                           <button
                             className="btn-icon"
-                            onClick={() => copyToClipboard(employee.secret_access_key, 'Secret Access Key')}
+                            onClick={() => copyToClipboard(employee.secret_access_key, t('userManagement.secretKey'))}
                           >
                             <Copy size={14} />
                           </button>
@@ -176,12 +242,12 @@ export default function UserManagement({ profile }: UserManagementProps) {
                       </div>
 
                       <div className="credential-item">
-                        <label>Region</label>
+                        <label>{t('userManagement.region')}</label>
                         <div className="credential-value">
                           <code>{profile.aws_config?.aws_region}</code>
                           <button
                             className="btn-icon"
-                            onClick={() => copyToClipboard(profile.aws_config!.aws_region, 'Region')}
+                            onClick={() => copyToClipboard(profile.aws_config!.aws_region, t('userManagement.region'))}
                           >
                             <Copy size={14} />
                           </button>
@@ -189,12 +255,12 @@ export default function UserManagement({ profile }: UserManagementProps) {
                       </div>
 
                       <div className="credential-item">
-                        <label>Bucket Name</label>
+                        <label>{t('userManagement.bucketName')}</label>
                         <div className="credential-value">
                           <code>{profile.aws_config?.bucket_name}</code>
                           <button
                             className="btn-icon"
-                            onClick={() => copyToClipboard(profile.aws_config!.bucket_name, 'Bucket Name')}
+                            onClick={() => copyToClipboard(profile.aws_config!.bucket_name, t('userManagement.bucketName'))}
                           >
                             <Copy size={14} />
                           </button>
@@ -202,12 +268,12 @@ export default function UserManagement({ profile }: UserManagementProps) {
                       </div>
 
                       <div className="credential-item">
-                        <label>Username (for app setup)</label>
+                        <label>{t('userManagement.usernameForSetup')}</label>
                         <div className="credential-value">
                           <code>{employee.username}</code>
                           <button
                             className="btn-icon"
-                            onClick={() => copyToClipboard(employee.username, 'Username')}
+                            onClick={() => copyToClipboard(employee.username, t('userManagement.username'))}
                           >
                             <Copy size={14} />
                           </button>
@@ -215,12 +281,12 @@ export default function UserManagement({ profile }: UserManagementProps) {
                       </div>
 
                       <div className="share-instructions">
-                        <h5>Instructions for {employee.name}:</h5>
+                        <h5>{t('userManagement.instructionsFor', { name: employee.name })}:</h5>
                         <ol>
-                          <li>Download and install the Cloud Backup app</li>
-                          <li>Choose "User Setup" when first opening the app</li>
-                          <li>Enter the credentials above when prompted</li>
-                          <li>Configure their source folders and start backing up</li>
+                          <li>{t('userManagement.instruction1')}</li>
+                          <li>{t('userManagement.instruction2')}</li>
+                          <li>{t('userManagement.instruction3')}</li>
+                          <li>{t('userManagement.instruction4')}</li>
                         </ol>
                       </div>
                     </div>
@@ -234,13 +300,13 @@ export default function UserManagement({ profile }: UserManagementProps) {
         {selectedEmployee && rcloneConfig && (
           <div className="config-preview">
             <div className="section-header">
-              <h3>Rclone Configuration for {selectedEmployee.name}</h3>
+              <h3>{t('userManagement.rcloneConfigFor', { name: selectedEmployee.name })}</h3>
               <button
                 className="btn btn-primary"
                 onClick={downloadRcloneConfig}
               >
                 <Download size={16} />
-                Download Config
+                {t('userManagement.downloadConfig')}
               </button>
             </div>
 
@@ -249,13 +315,13 @@ export default function UserManagement({ profile }: UserManagementProps) {
             </div>
 
             <div className="config-instructions">
-              <h4>Setup Instructions:</h4>
+              <h4>{t('userManagement.setupInstructions')}:</h4>
               <ol>
-                <li>Download the config file above</li>
-                <li>Save it as <code>rclone.conf</code> in a secure location</li>
-                <li>Use this config file path in the Cloud Backup app setup</li>
-                <li>Set the username to: <code>{selectedEmployee.username}</code></li>
-                <li>Set the bucket to: <code>{profile.aws_config.bucket_name}</code></li>
+                <li>{t('userManagement.setupStep1')}</li>
+                <li>{t('userManagement.setupStep2')}</li>
+                <li>{t('userManagement.setupStep3')}</li>
+                <li>{t('userManagement.setupStep4', { username: selectedEmployee.username })}</li>
+                <li>{t('userManagement.setupStep5', { bucket: profile.aws_config.bucket_name })}</li>
               </ol>
             </div>
           </div>

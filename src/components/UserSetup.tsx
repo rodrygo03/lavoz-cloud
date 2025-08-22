@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { 
   ArrowRight, 
   ArrowLeft, 
-  Key, 
-  Folder,
+  Key,
+  RefreshCw,
   CheckCircle
 } from 'lucide-react';
 import { Profile, BackupMode } from '../types';
@@ -21,12 +22,10 @@ interface UserFormData {
   region: string;
   bucket: string;
   username: string;
-  rclone_bin: string;
-  sources: string[];
-  mode: BackupMode;
 }
 
 export default function UserSetup({ onSetupComplete, onCancel }: UserSetupProps) {
+  const { t, i18n } = useTranslation();
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState<UserFormData>({
     profile_name: '',
@@ -34,28 +33,35 @@ export default function UserSetup({ onSetupComplete, onCancel }: UserSetupProps)
     secret_access_key: '',
     region: 'us-east-1',
     bucket: '',
-    username: '',
-    rclone_bin: '',
-    sources: [],
-    mode: 'Copy'
+    username: ''
   });
-  const [rcloneCandidates, setRcloneCandidates] = useState<string[]>([]);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [isCreating, setIsCreating] = useState(false);
+  const [isValidatingCredentials, setIsValidatingCredentials] = useState(false);
+  const [credentialsValidated, setCredentialsValidated] = useState(false);
 
-  useEffect(() => {
-    detectRclone();
-  }, []);
-
-  const detectRclone = async () => {
+  const validateCredentials = async () => {
+    setIsValidatingCredentials(true);
     try {
-      const candidates = await invoke<string[]>('detect_rclone');
-      setRcloneCandidates(candidates);
-      if (candidates.length > 0 && !candidates[0].includes('not found')) {
-        setFormData(prev => ({ ...prev, rclone_bin: candidates[0] }));
-      }
+      const payload = {
+        accessKeyId: formData.access_key_id,
+        secretAccessKey: formData.secret_access_key,
+        region: formData.region,
+        profileName: `${formData.profile_name}-validation`
+      };
+      
+      console.log('Validating AWS credentials for user...');
+      const result = await invoke<string>('configure_aws_credentials', payload);
+      
+      console.log('User credentials validated successfully:', result);
+      setCredentialsValidated(true);
+      alert(t('userSetup.credentialsValidated') || '✅ Credentials validated successfully!');
     } catch (error) {
-      console.error('Failed to detect rclone:', error);
+      console.error('Credential validation failed:', error);
+      setCredentialsValidated(false);
+      alert(t('userSetup.credentialsValidationFailed') || '❌ Credential validation failed: ' + error);
+    } finally {
+      setIsValidatingCredentials(false);
     }
   };
 
@@ -64,19 +70,13 @@ export default function UserSetup({ onSetupComplete, onCancel }: UserSetupProps)
 
     switch (step) {
       case 0: // Profile name
-        if (!formData.profile_name.trim()) errors.profile_name = 'Profile name is required';
+        if (!formData.profile_name.trim()) errors.profile_name = t('onboarding.profileNameRequired');
         break;
       case 1: // AWS credentials
-        if (!formData.access_key_id.trim()) errors.access_key_id = 'Access Key ID is required';
-        if (!formData.secret_access_key.trim()) errors.secret_access_key = 'Secret Access Key is required';
-        if (!formData.bucket.trim()) errors.bucket = 'Bucket name is required';
-        if (!formData.username.trim()) errors.username = 'Username is required';
-        break;
-      case 2: // Rclone setup
-        if (!formData.rclone_bin.trim()) errors.rclone_bin = 'Rclone binary path is required';
-        break;
-      case 3: // Source folders
-        if (formData.sources.length === 0) errors.sources = 'At least one source folder is required';
+        if (!formData.access_key_id.trim()) errors.access_key_id = t('adminSetup.awsAccessKeyIdRequired');
+        if (!formData.secret_access_key.trim()) errors.secret_access_key = t('adminSetup.awsSecretAccessKeyRequired');
+        if (!formData.bucket.trim()) errors.bucket = t('onboarding.bucketNameRequired');
+        if (!formData.username.trim()) errors.username = t('userSetup.usernameRequired');
         break;
     }
 
@@ -86,6 +86,12 @@ export default function UserSetup({ onSetupComplete, onCancel }: UserSetupProps)
 
   const nextStep = () => {
     if (!validateStep(currentStep)) return;
+
+    // For AWS credentials step, require validation
+    if (currentStep === 1 && !credentialsValidated) {
+      alert(t('userSetup.pleaseValidateCredentials') || 'Please validate your AWS credentials first');
+      return;
+    }
 
     if (currentStep < steps.length - 1) {
       setCurrentStep(currentStep + 1);
@@ -98,26 +104,6 @@ export default function UserSetup({ onSetupComplete, onCancel }: UserSetupProps)
     }
   };
 
-  const addSource = () => {
-    setFormData(prev => ({
-      ...prev,
-      sources: [...prev.sources, '']
-    }));
-  };
-
-  const updateSource = (index: number, value: string) => {
-    setFormData(prev => ({
-      ...prev,
-      sources: prev.sources.map((source, i) => i === index ? value : source)
-    }));
-  };
-
-  const removeSource = (index: number) => {
-    setFormData(prev => ({
-      ...prev,
-      sources: prev.sources.filter((_, i) => i !== index)
-    }));
-  };
 
   const createProfile = async () => {
     if (!validateStep(currentStep)) return;
@@ -130,7 +116,7 @@ export default function UserSetup({ onSetupComplete, onCancel }: UserSetupProps)
         profileType: 'User'
       });
 
-      // Generate rclone config content
+      // Generate rclone config content  
       const rcloneConfig = `[aws]
 type = s3
 provider = AWS
@@ -141,31 +127,58 @@ region = ${formData.region}
 acl = private
 `;
 
-      // Create temporary rclone config file
-      const configPath = `/tmp/rclone-${profile.id}.conf`;
+      // Create config file path
+      const configPath = `user-${profile.id}-rclone.conf`;
       
-      // Update profile with configuration
+      try {
+        // Save rclone config file
+        await invoke('write_text_file', {
+          path: configPath,
+          contents: rcloneConfig
+        });
+        console.log('✅ Rclone config auto-generated and saved to:', configPath);
+      } catch (writeError) {
+        console.error('❌ Failed to write rclone config file:', writeError);
+        // Continue anyway - backend might handle config differently
+      }
+
+      // Create AWS config structure (same as admin expects)
+      const awsConfig = {
+        aws_access_key_id: formData.access_key_id,
+        aws_secret_access_key: formData.secret_access_key,
+        aws_region: formData.region,
+        aws_sso_configured: false,
+        bucket_name: formData.bucket,
+        lifecycle_config: {
+          enabled: false,
+          days_to_ia: 30,
+          days_to_glacier: 365
+        },
+        employees: [] // Empty for user profiles
+      };
+
+      // Create user profile with proper AWS config and rclone configuration
       const updatedProfile = {
         ...profile,
-        rclone_bin: formData.rclone_bin,
-        rclone_conf: configPath,
         bucket: formData.bucket,
         prefix: formData.username,
-        sources: formData.sources.filter(s => s.trim() !== ''),
-        mode: formData.mode,
+        remote: 'aws',
+        sources: [],
+        mode: 'Copy' as BackupMode,
+        rclone_bin: 'rclone', // Default binary
+        rclone_conf: configPath, // Generated config file
         rclone_flags: [
           '--checksum',
-          '--fast-list',
+          '--fast-list', 
           '--transfers=8',
           '--checkers=32'
-        ]
+        ],
+        // Add AWS config so backend auto-setup works
+        aws_config: awsConfig
       };
 
       await invoke('update_profile', { profile: updatedProfile });
       await invoke('set_active_profile', { profileId: profile.id });
-
-      // Save rclone config to file (in a real app, you'd use proper file handling)
-      console.log('Rclone config to save:', rcloneConfig);
       
       onSetupComplete(updatedProfile);
     } catch (error) {
@@ -176,52 +189,45 @@ acl = private
     }
   };
 
-  const openFolderDialog = (callback: (path: string) => void) => {
-    const path = prompt('Enter folder path:');
-    if (path) {
-      callback(path);
-    }
-  };
 
   const steps = [
     {
-      title: 'Profile Name',
-      description: 'Give your backup profile a name',
+      title: t('userSetup.profileName'),
+      description: t('userSetup.profileNameDescription'),
       content: (
         <div className="form-group">
-          <label htmlFor="profile-name">Profile Name</label>
+          <label htmlFor="profile-name">{t('userSetup.profileName')}</label>
           <input
             id="profile-name"
             type="text"
             value={formData.profile_name}
             onChange={(e) => setFormData(prev => ({ ...prev, profile_name: e.target.value }))}
-            placeholder="My Work Backup"
+            placeholder={t('userSetup.profileNamePlaceholder')}
             className={validationErrors.profile_name ? 'error' : ''}
           />
           {validationErrors.profile_name && (
             <div className="error-message">{validationErrors.profile_name}</div>
           )}
           <div className="help-text">
-            Choose a descriptive name for your backup configuration.
+            {t('userSetup.profileNameHelp')}
           </div>
         </div>
       )
     },
     {
-      title: 'AWS Credentials',
-      description: 'Enter the credentials provided by your administrator',
+      title: t('userSetup.awsCredentials'),
+      description: t('userSetup.awsCredentialsDescription'),
       content: (
         <div className="space-y-6">
           <div className="info-box">
             <Key size={16} />
             <div>
-              <strong>Credentials Required:</strong> Your administrator should have provided you with 
-              AWS credentials and bucket information. If you don't have these, please contact your admin.
+              <strong>{t('userSetup.credentialsRequired')}</strong> {t('userSetup.credentialsInfo')}
             </div>
           </div>
 
           <div className="form-group">
-            <label htmlFor="access-key">AWS Access Key ID</label>
+            <label htmlFor="access-key">{t('adminSetup.awsAccessKeyId')}</label>
             <input
               id="access-key"
               type="text"
@@ -236,7 +242,7 @@ acl = private
           </div>
 
           <div className="form-group">
-            <label htmlFor="secret-key">AWS Secret Access Key</label>
+            <label htmlFor="secret-key">{t('adminSetup.awsSecretAccessKey')}</label>
             <input
               id="secret-key"
               type="password"
@@ -252,21 +258,21 @@ acl = private
 
           <div className="form-row">
             <div className="form-group">
-              <label htmlFor="region">AWS Region</label>
+              <label htmlFor="region">{t('adminSetup.awsRegion')}</label>
               <select
                 id="region"
                 value={formData.region}
                 onChange={(e) => setFormData(prev => ({ ...prev, region: e.target.value }))}
               >
-                <option value="us-east-1">US East (N. Virginia)</option>
-                <option value="us-west-2">US West (Oregon)</option>
-                <option value="eu-west-1">Europe (Ireland)</option>
-                <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
+                <option value="us-east-1">{t('adminSetup.usEastVirginia')}</option>
+                <option value="us-west-2">{t('adminSetup.usWestOregon')}</option>
+                <option value="eu-west-1">{t('adminSetup.europeIreland')}</option>
+                <option value="ap-southeast-1">{t('adminSetup.asiaSeattle')}</option>
               </select>
             </div>
 
             <div className="form-group">
-              <label htmlFor="bucket">S3 Bucket Name</label>
+              <label htmlFor="bucket">{t('adminSetup.s3BucketName')}</label>
               <input
                 id="bucket"
                 type="text"
@@ -282,7 +288,7 @@ acl = private
           </div>
 
           <div className="form-group">
-            <label htmlFor="username">Your Username</label>
+            <label htmlFor="username">{t('userSetup.yourUsername')}</label>
             <input
               id="username"
               type="text"
@@ -295,128 +301,45 @@ acl = private
               <div className="error-message">{validationErrors.username}</div>
             )}
             <div className="help-text">
-              This should match the username your admin created for you.
+              {t('userSetup.usernameHelp')}
             </div>
-          </div>
-        </div>
-      )
-    },
-    {
-      title: 'Rclone Setup',
-      description: 'Configure the rclone tool for file synchronization',
-      content: (
-        <div className="space-y-6">
-          <div className="form-group">
-            <label>Rclone Binary Path</label>
-            <div className="rclone-candidates">
-              {rcloneCandidates.map((candidate, index) => (
-                <label key={index} className="radio-option">
-                  <input
-                    type="radio"
-                    name="rclone-bin"
-                    value={candidate}
-                    checked={formData.rclone_bin === candidate}
-                    onChange={(e) => setFormData(prev => ({ ...prev, rclone_bin: e.target.value }))}
-                  />
-                  <span>{candidate}</span>
-                </label>
-              ))}
-            </div>
-            
-            <div className="custom-path">
-              <input
-                type="text"
-                value={formData.rclone_bin}
-                onChange={(e) => setFormData(prev => ({ ...prev, rclone_bin: e.target.value }))}
-                placeholder="Custom path to rclone binary"
-                className={validationErrors.rclone_bin ? 'error' : ''}
-              />
-              <button
-                type="button"
-                className="btn-icon"
-                onClick={() => openFolderDialog((path) => 
-                  setFormData(prev => ({ ...prev, rclone_bin: path }))
-                )}
-              >
-                <Folder size={16} />
-              </button>
-            </div>
-            
-            {validationErrors.rclone_bin && (
-              <div className="error-message">{validationErrors.rclone_bin}</div>
-            )}
-          </div>
-        </div>
-      )
-    },
-    {
-      title: 'Source Folders',
-      description: 'Select the folders you want to backup',
-      content: (
-        <div className="space-y-6">
-          <div className="form-group">
-            <label>Folders to Backup</label>
-            <div className="sources-list">
-              {formData.sources.map((source, index) => (
-                <div key={index} className="source-item">
-                  <input
-                    type="text"
-                    value={source}
-                    onChange={(e) => updateSource(index, e.target.value)}
-                    placeholder="Path to folder"
-                  />
-                  <button
-                    type="button"
-                    className="btn-icon"
-                    onClick={() => openFolderDialog((path) => updateSource(index, path))}
-                  >
-                    <Folder size={16} />
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-icon danger"
-                    onClick={() => removeSource(index)}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-            
-            <button 
-              type="button" 
-              className="btn btn-secondary"
-              onClick={addSource}
-            >
-              Add Folder
-            </button>
-            
-            {validationErrors.sources && (
-              <div className="error-message">{validationErrors.sources}</div>
-            )}
           </div>
 
-          <div className="form-group">
-            <label>Backup Mode</label>
-            <div className="radio-group">
-              <label className="radio-option detailed">
-                <input
-                  type="radio"
-                  name="backup-mode"
-                  value="Copy"
-                  checked={formData.mode === 'Copy'}
-                  onChange={(e) => setFormData(prev => ({ ...prev, mode: e.target.value as BackupMode }))}
-                />
-                <div className="option-content">
-                  <div className="option-title">
-                    <CheckCircle size={16} className="text-green" />
-                    Copy Mode (Recommended)
-                  </div>
-                  <div className="option-description">
-                    Only copies new and changed files. Never deletes files from the cloud.
-                  </div>
+          {/* Credential Validation Section */}
+          <div className="validation-section">
+            <div className="validation-header">
+              <h3>{t('userSetup.validateCredentials') || 'Validate AWS Credentials'}</h3>
+              <p>{t('userSetup.validateCredentialsDesc') || 'Verify your AWS credentials before proceeding'}</p>
+            </div>
+
+            <div className="validation-actions">
+              <button
+                type="button"
+                className={`btn ${credentialsValidated ? 'btn-success' : 'btn-primary'}`}
+                onClick={validateCredentials}
+                disabled={isValidatingCredentials || !formData.access_key_id || !formData.secret_access_key}
+              >
+                {isValidatingCredentials ? (
+                  <>
+                    <RefreshCw size={16} className="spinning" />
+                    {t('adminSetup.validating') || 'Validating...'}
+                  </>
+                ) : credentialsValidated ? (
+                  <>
+                    <CheckCircle size={16} />
+                    {t('userSetup.credentialsValidated') || 'Credentials Validated'}
+                  </>
+                ) : (
+                  t('userSetup.validateCredentials') || 'Validate Credentials'
+                )}
+              </button>
+
+              {credentialsValidated && (
+                <div className="validation-success">
+                  <CheckCircle size={20} className="text-green" />
+                  <span>{t('adminSetup.credentialsConfigured') || 'AWS credentials are configured and validated'}</span>
                 </div>
-              </label>
+              )}
             </div>
           </div>
         </div>
@@ -424,15 +347,56 @@ acl = private
     }
   ];
 
+  // Language toggle component
+  const LanguageToggle = () => (
+    <div style={{ display: 'flex', gap: '8px' }}>
+      <button
+        style={{
+          padding: '4px 8px',
+          border: '1px solid #ccc',
+          borderRadius: '4px',
+          background: i18n.language === 'en' ? '#007bff' : '#fff',
+          color: i18n.language === 'en' ? '#fff' : '#000',
+          cursor: 'pointer'
+        }}
+        onClick={() => {
+          i18n.changeLanguage('en');
+          localStorage.setItem('i18nextLng', 'en');
+        }}
+      >
+        EN
+      </button>
+      <button
+        style={{
+          padding: '4px 8px',
+          border: '1px solid #ccc',
+          borderRadius: '4px',
+          background: i18n.language === 'es' ? '#007bff' : '#fff',
+          color: i18n.language === 'es' ? '#fff' : '#000',
+          cursor: 'pointer'
+        }}
+        onClick={() => {
+          i18n.changeLanguage('es');
+          localStorage.setItem('i18nextLng', 'es');
+        }}
+      >
+        ES
+      </button>
+    </div>
+  );
+
   const currentStepData = steps[currentStep];
 
   return (
     <div className="user-setup">
       <div className="setup-container">
         <div className="setup-header">
-          <h1>User Setup</h1>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+            <h1>{t('userSetup.title')}</h1>
+            <LanguageToggle />
+          </div>
           <div className="step-indicator">
-            Step {currentStep + 1} of {steps.length}
+            {t('adminSetup.stepOf', { current: currentStep + 1, total: steps.length })}
           </div>
         </div>
 
@@ -462,7 +426,7 @@ acl = private
                 onClick={prevStep}
               >
                 <ArrowLeft size={16} />
-                Back
+                {t('common.back')}
               </button>
             )}
             
@@ -470,7 +434,7 @@ acl = private
               className="btn btn-secondary"
               onClick={onCancel}
             >
-              Cancel
+              {t('common.cancel')}
             </button>
           </div>
 
@@ -480,7 +444,7 @@ acl = private
                 className="btn btn-primary"
                 onClick={nextStep}
               >
-                Next
+                {t('common.next')}
                 <ArrowRight size={16} />
               </button>
             ) : (
@@ -489,7 +453,7 @@ acl = private
                 onClick={createProfile}
                 disabled={isCreating}
               >
-                {isCreating ? 'Creating Profile...' : 'Create Profile'}
+                {isCreating ? t('userSetup.creatingProfile') : t('onboarding.createProfile')}
               </button>
             )}
           </div>
