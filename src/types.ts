@@ -5,6 +5,32 @@ export interface DependencyStatus {
   install_command: string;
 }
 
+// Cognito authentication types
+export interface AppConfiguration {
+  cognito_user_pool_id: string;
+  cognito_app_client_id: string;
+  cognito_identity_pool_id: string;
+  cognito_region: string;
+  bucket_name: string;
+  is_configured: boolean;
+}
+
+export interface UserSession {
+  email: string;
+  userId: string;
+  groups: string[];
+  idToken: string;
+  accessToken: string;
+  refreshToken: string;
+}
+
+export interface TemporaryCredentials {
+  accessKeyId: string;
+  secretAccessKey: string;
+  sessionToken: string;
+  expiration: string;
+}
+
 export interface Profile {
   id: string;
   name: string;

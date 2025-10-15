@@ -5,6 +5,10 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Tauri + React + Typescript</title>
+    <script>
+      // Fix for amazon-cognito-identity-js requiring global
+      window.global = window;
+    </script>
   </head>
 
   <body>

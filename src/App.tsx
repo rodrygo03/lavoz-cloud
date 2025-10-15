@@ -7,53 +7,68 @@ import Dashboard from './components/Dashboard';
 import CloudBrowser from './components/CloudBrowser';
 import Settings from './components/Settings';
 import UserManagement from './components/UserManagement';
-import AdminSetup from './components/AdminSetup';
-import UserSetup from './components/UserSetup';
+import CognitoLogin from './components/CognitoLogin';
 import DependencyDownloader from './components/DependencyDownloader';
-import { Profile } from './types';
+import { Profile, UserSession } from './types';
 import './i18n';
 import "./App.css";
 
 function App() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeProfile, setActiveProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showSetup, setShowSetup] = useState<'none' | 'admin' | 'user'>('none');
+  const [userSession, setUserSession] = useState<UserSession | null>(null);
   const [dependenciesReady, setDependenciesReady] = useState(false);
   const [checkingDependencies, setCheckingDependencies] = useState(true);
 
   useEffect(() => {
-    checkDependenciesAndLoadProfiles();
+    checkDependenciesAndLoadSession();
   }, []);
 
-  const checkDependenciesAndLoadProfiles = async () => {
+  const checkDependenciesAndLoadSession = async () => {
     try {
       console.log('Checking if dependencies need to be downloaded...');
       // Check if dependencies need to be downloaded
       const needsDownload = await invoke<boolean>('check_dependencies_needed');
       console.log('Dependencies needed:', needsDownload);
-      
+
       if (!needsDownload) {
         // Dependencies already installed, proceed normally
         console.log('Dependencies already installed, proceeding...');
         setDependenciesReady(true);
         setCheckingDependencies(false);
-        setLoading(false); // Make sure loading is false
-        await loadProfiles();
+        setLoading(false);
+        await loadSession();
       } else {
         // Need to download dependencies
         console.log('Need to download dependencies, showing downloader...');
         setCheckingDependencies(false);
-        setLoading(false); // Make sure loading is false so we can show the downloader
+        setLoading(false);
       }
     } catch (error) {
       console.error('Failed to check dependencies:', error);
       setCheckingDependencies(false);
-      setLoading(false); // Make sure loading is false
+      setLoading(false);
       // Set dependencies as ready to proceed anyway
       setDependenciesReady(true);
-      await loadProfiles();
+      await loadSession();
+    }
+  };
+
+  const loadSession = async () => {
+    try {
+      // Check for existing session
+      const sessionStr = localStorage.getItem('user_session');
+      if (sessionStr) {
+        const session = JSON.parse(sessionStr);
+        setUserSession(session);
+        await loadProfiles();
+      }
+    } catch (error) {
+      console.error('Failed to load session:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -75,9 +90,16 @@ function App() {
     }
   };
 
-  const handleSetupComplete = async () => {
-    await loadProfiles();
-    setShowSetup('none');
+  const handleLoginSuccess = (session: UserSession) => {
+    setUserSession(session);
+    loadProfiles();
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('user_session');
+    setUserSession(null);
+    setProfiles([]);
+    setActiveProfile(null);
   };
 
   const handleProfileSelected = async (profile: Profile) => {
@@ -115,106 +137,26 @@ function App() {
     return <DependencyDownloader onDownloadComplete={() => {
       console.log('Download completed, setting dependencies ready');
       setDependenciesReady(true);
-      loadProfiles();
+      loadSession();
     }} />;
   }
 
-  if (showSetup === 'admin') {
-    return (
-      <AdminSetup 
-        onSetupComplete={handleSetupComplete}
-        onCancel={() => setShowSetup('none')}
-      />
-    );
-  }
-
-  if (showSetup === 'user') {
-    return (
-      <UserSetup 
-        onSetupComplete={handleSetupComplete}
-        onCancel={() => setShowSetup('none')}
-      />
-    );
-  }
-
-  // Language toggle component
-  const LanguageToggle = () => (
-    <div style={{ display: 'flex', gap: '8px' }}>
-      <button
-        style={{
-          padding: '4px 8px',
-          border: '1px solid #ccc',
-          borderRadius: '4px',
-          background: i18n.language === 'en' ? '#007bff' : '#fff',
-          color: i18n.language === 'en' ? '#fff' : '#000',
-          cursor: 'pointer'
-        }}
-        onClick={() => {
-          i18n.changeLanguage('en');
-          localStorage.setItem('i18nextLng', 'en');
-        }}
-      >
-        EN
-      </button>
-      <button
-        style={{
-          padding: '4px 8px',
-          border: '1px solid #ccc',
-          borderRadius: '4px',
-          background: i18n.language === 'es' ? '#007bff' : '#fff',
-          color: i18n.language === 'es' ? '#fff' : '#000',
-          cursor: 'pointer'
-        }}
-        onClick={() => {
-          i18n.changeLanguage('es');
-          localStorage.setItem('i18nextLng', 'es');
-        }}
-      >
-        ES
-      </button>
-    </div>
-  );
-
-  if (profiles.length === 0) {
-    return (
-      <div className="setup-type-selection">
-        <div className="selection-container">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: '1rem' }}>
-            <div></div>
-            <LanguageToggle />
-          </div>
-          <h1>{t('app.welcome')}</h1>
-          <p>{t('app.chooseSetupType')}</p>
-          
-          <div className="setup-options">
-            <div className="setup-option" onClick={() => setShowSetup('admin')}>
-              <div className="option-icon">👑</div>
-              <h3>{t('setup.adminSetup')}</h3>
-              <p>{t('setup.adminDescription')}</p>
-              <button className="btn btn-primary">{t('setup.setupAsAdmin')}</button>
-            </div>
-            
-            <div className="setup-option" onClick={() => setShowSetup('user')}>
-              <div className="option-icon">👤</div>
-              <h3>{t('setup.userSetup')}</h3>
-              <p>{t('setup.userDescription')}</p>
-              <button className="btn btn-secondary">{t('setup.setupAsUser')}</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+  // Show Cognito login if no user session
+  if (!userSession) {
+    return <CognitoLogin onLoginSuccess={handleLoginSuccess} />;
   }
 
   return (
     <Router>
       <div className="app">
-        <Sidebar 
+        <Sidebar
           profiles={profiles}
           activeProfile={activeProfile}
           onProfileSelect={handleProfileSelected}
-          onNewProfile={() => setShowSetup('user')}
+          onNewProfile={() => {}}
           onProfilesUpdated={loadProfiles}
+          userSession={userSession}
+          onLogout={handleLogout}
         />
         <main className="main-content">
           <Routes>

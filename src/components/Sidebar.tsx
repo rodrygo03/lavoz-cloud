@@ -1,19 +1,20 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { 
-  Database, 
-  Cloud, 
-  Settings, 
-  Plus, 
-  Monitor, 
+import {
+  Database,
+  Cloud,
+  Settings,
+  Plus,
+  Monitor,
   User,
   Users,
   MoreHorizontal,
-  Trash2
+  Trash2,
+  LogOut
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
-import { Profile } from '../types';
+import { Profile, UserSession } from '../types';
 import { clsx } from 'clsx';
 
 interface SidebarProps {
@@ -22,14 +23,18 @@ interface SidebarProps {
   onProfileSelect: (profile: Profile) => void;
   onNewProfile: () => void;
   onProfilesUpdated: () => void;
+  userSession: UserSession | null;
+  onLogout: () => void;
 }
 
-export default function Sidebar({ 
-  profiles, 
-  activeProfile, 
-  onProfileSelect, 
+export default function Sidebar({
+  profiles,
+  activeProfile,
+  onProfileSelect,
   onNewProfile,
-  onProfilesUpdated 
+  onProfilesUpdated,
+  userSession,
+  onLogout
 }: SidebarProps) {
   const { t } = useTranslation();
   const location = useLocation();
@@ -164,6 +169,41 @@ export default function Sidebar({
           )}
         </div>
       </div>
+
+      {userSession && (
+        <div className="sidebar-section" style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid #e0e0e0' }}>
+          <div className="profile-item active" style={{ marginBottom: '0.5rem' }}>
+            <div className="profile-info" style={{ cursor: 'default' }}>
+              <div className="profile-icon" style={{
+                background: userSession.groups.includes('Admins') ? '#007bff' : '#28a745',
+                color: 'white'
+              }}>
+                <User size={16} />
+              </div>
+              <div className="profile-details">
+                <div className="profile-name">{userSession.email}</div>
+                <div className="profile-meta">
+                  {userSession.groups.includes('Admins') ? 'Administrator' : 'Employee'}
+                </div>
+              </div>
+            </div>
+          </div>
+          <button
+            className="btn btn-secondary"
+            onClick={onLogout}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px'
+            }}
+          >
+            <LogOut size={16} />
+            Sign Out
+          </button>
+        </div>
+      )}
 
       <div className="sidebar-footer">
         <div className="app-info">
