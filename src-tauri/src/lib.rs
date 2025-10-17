@@ -25,6 +25,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ping,
             get_profiles,
+            get_or_create_user_profile,
             create_profile,
             update_profile,
             delete_profile,

@@ -35,6 +35,7 @@ export interface Profile {
   id: string;
   name: string;
   profile_type: ProfileType;
+  user_id?: string; // Cognito user ID - links profile to authenticated user
   rclone_bin: string;
   rclone_conf: string;
   remote: string;

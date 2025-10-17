@@ -39,7 +39,7 @@ function App() {
         setDependenciesReady(true);
         setCheckingDependencies(false);
         setLoading(false);
-        await loadSession();
+        // No session loading - user must login each time
       } else {
         // Need to download dependencies
         console.log('Need to download dependencies, showing downloader...');
@@ -52,51 +52,83 @@ function App() {
       setLoading(false);
       // Set dependencies as ready to proceed anyway
       setDependenciesReady(true);
-      await loadSession();
-    }
-  };
-
-  const loadSession = async () => {
-    try {
-      // Check for existing session
-      const sessionStr = localStorage.getItem('user_session');
-      if (sessionStr) {
-        const session = JSON.parse(sessionStr);
-        setUserSession(session);
-        await loadProfiles();
-      }
-    } catch (error) {
-      console.error('Failed to load session:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
   const loadProfiles = async () => {
     try {
-      const profilesList = await invoke<Profile[]>('get_profiles');
-      setProfiles(profilesList);
-      
-      const active = await invoke<Profile | null>('get_active_profile');
-      setActiveProfile(active);
-      
-      if (profilesList.length === 0) {
-        setShowSetup('none'); // Will show setup type selection
+      // Only load profile if we have a session
+      if (userSession) {
+        await loadUserProfile(userSession);
       }
     } catch (error) {
       console.error('Failed to load profiles:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
-  const handleLoginSuccess = (session: UserSession) => {
+  const handleLoginSuccess = async (session: UserSession) => {
     setUserSession(session);
-    loadProfiles();
+    await loadUserProfile(session);
+  };
+
+  const loadUserProfile = async (session: UserSession) => {
+    try {
+      // Get app config for bucket name and Cognito config
+      const configStr = localStorage.getItem('app_config');
+      if (!configStr) {
+        console.error('No app config found');
+        alert('App configuration not found. Please configure the app first.');
+        return;
+      }
+
+      const appConfig = JSON.parse(configStr);
+      console.log('App config loaded:', {
+        identityPoolId: appConfig.cognito_identity_pool_id,
+        region: appConfig.cognito_region,
+        bucket: appConfig.bucket_name
+      });
+
+      const isAdmin = session.groups.includes('Admins');
+      console.log('User is admin:', isAdmin);
+
+      // Get temporary AWS credentials from Cognito Identity Pool
+      console.log('Getting temporary AWS credentials...');
+      const { getTemporaryCredentials } = await import('./services/awsCredentials');
+      const tempCreds = await getTemporaryCredentials(
+        appConfig.cognito_identity_pool_id,
+        appConfig.cognito_region,
+        session.idToken
+      );
+      console.log('Temporary credentials obtained:', {
+        accessKeyId: tempCreds.accessKeyId.substring(0, 10) + '...',
+        hasSessionToken: !!tempCreds.sessionToken
+      });
+
+      // Auto-create or get existing profile for this user
+      console.log('Creating/loading user profile...');
+      const profile = await invoke<Profile>('get_or_create_user_profile', {
+        userId: session.userId,
+        email: session.email,
+        isAdmin,
+        bucket: appConfig.bucket_name || 'company-backups',
+        accessKeyId: tempCreds.accessKeyId,
+        secretAccessKey: tempCreds.secretAccessKey,
+        sessionToken: tempCreds.sessionToken,
+        region: appConfig.cognito_region,
+      });
+
+      setProfiles([profile]);
+      setActiveProfile(profile);
+
+      console.log('User profile loaded/created successfully:', profile);
+    } catch (error) {
+      console.error('Failed to load user profile - FULL ERROR:', error);
+      alert(`Failed to load user profile: ${error}`);
+    }
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('user_session');
+    // No need to remove from localStorage since we don't store it anymore
     setUserSession(null);
     setProfiles([]);
     setActiveProfile(null);
@@ -137,7 +169,7 @@ function App() {
     return <DependencyDownloader onDownloadComplete={() => {
       console.log('Download completed, setting dependencies ready');
       setDependenciesReady(true);
-      loadSession();
+      // Don't load session - user will login
     }} />;
   }
 

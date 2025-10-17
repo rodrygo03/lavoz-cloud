@@ -57,6 +57,119 @@ pub async fn get_profiles() -> Result<Vec<Profile>, String> {
 }
 
 #[command]
+pub async fn get_or_create_user_profile(
+    user_id: String,
+    email: String,
+    is_admin: bool,
+    bucket: String,
+    access_key_id: String,
+    secret_access_key: String,
+    session_token: String,
+    region: String,
+) -> Result<Profile, String> {
+    let mut config = load_config().await?;
+
+    // Check if user already has a profile
+    if let Some(existing_profile) = config.profiles.iter().find(|p| p.user_id.as_ref() == Some(&user_id)) {
+        // Update rclone config with new credentials (they may have been refreshed)
+        update_rclone_config_for_cognito(
+            &existing_profile,
+            &access_key_id,
+            &secret_access_key,
+            &session_token,
+            &region
+        ).await?;
+        return Ok(existing_profile.clone());
+    }
+
+    // Create new profile for this user
+    let profile_type = if is_admin {
+        ProfileType::Admin
+    } else {
+        ProfileType::User
+    };
+
+    let mut profile = Profile::new(email.clone(), profile_type);
+    profile.user_id = Some(user_id.clone());
+    profile.bucket = bucket;
+
+    // Use Cognito user ID based folder structure (must match IAM policy)
+    // Structure: s3://bucket/users/{cognito-user-id}/
+    // The IAM policy uses ${cognito-identity.amazonaws.com:sub} which is the user_id
+    profile.prefix = if is_admin {
+        String::new() // Admin has no prefix - can access entire bucket
+    } else {
+        format!("users/{}", user_id) // Regular users get users/{cognito-sub}/
+    };
+
+    // TODO: On first backup, create a .user-info.json file in the user's folder
+    // containing their email so admins can identify folders easily
+
+    // Generate rclone config with temporary credentials
+    let config_dir = get_config_dir()?;
+    let rclone_conf_path = config_dir.join("rclone.conf");
+    profile.rclone_conf = rclone_conf_path.to_string_lossy().to_string();
+
+    update_rclone_config_for_cognito(
+        &profile,
+        &access_key_id,
+        &secret_access_key,
+        &session_token,
+        &region
+    ).await?;
+
+    // Add to config
+    config.profiles.push(profile.clone());
+    config.active_profile_id = Some(profile.id.clone());
+    config.updated_at = Utc::now();
+
+    save_config(&config).await?;
+    Ok(profile)
+}
+
+async fn update_rclone_config_for_cognito(
+    _profile: &Profile,
+    access_key_id: &str,
+    secret_access_key: &str,
+    session_token: &str,
+    region: &str,
+) -> Result<(), String> {
+    let config_dir = get_config_dir()?;
+
+    // Ensure config directory exists
+    if !config_dir.exists() {
+        fs::create_dir_all(&config_dir).map_err(|e| format!("Failed to create config dir: {}", e))?;
+    }
+
+    let rclone_conf_path = config_dir.join("rclone.conf");
+
+    let rclone_config = format!(
+        "[aws]
+type = s3
+provider = AWS
+env_auth = false
+access_key_id = {}
+secret_access_key = {}
+session_token = {}
+region = {}
+acl = private
+
+",
+        access_key_id,
+        secret_access_key,
+        session_token,
+        region
+    );
+
+    println!("Writing rclone config to: {}", rclone_conf_path.display());
+    fs::write(&rclone_conf_path, &rclone_config)
+        .map_err(|e| format!("Failed to write rclone config: {}", e))?;
+
+    println!("Rclone config written successfully");
+    Ok(())
+}
+
+#[command]
 pub async fn create_profile(name: String, profile_type: ProfileType) -> Result<Profile, String> {
     let mut config = load_config().await?;
     let profile = Profile::new(name, profile_type);
@@ -71,17 +184,24 @@ pub async fn create_profile(name: String, profile_type: ProfileType) -> Result<P
 #[command]
 pub async fn update_profile(profile: Profile) -> Result<Profile, String> {
     let mut config = load_config().await?;
-    
+
+    println!("Attempting to update profile with ID: {}", profile.id);
+    println!("Existing profile IDs in config: {:?}", config.profiles.iter().map(|p| &p.id).collect::<Vec<_>>());
+
     if let Some(existing) = config.profiles.iter_mut().find(|p| p.id == profile.id) {
         let mut updated_profile = profile;
         updated_profile.updated_at = Utc::now();
         *existing = updated_profile.clone();
-        
+
         config.updated_at = Utc::now();
         save_config(&config).await?;
+        println!("Profile updated successfully");
         Ok(updated_profile)
     } else {
-        Err("Profile not found".to_string())
+        println!("Profile not found! Looking for ID: {}", profile.id);
+        Err(format!("Profile not found. Looking for ID: {}, Available IDs: {:?}",
+            profile.id,
+            config.profiles.iter().map(|p| &p.id).collect::<Vec<_>>()))
     }
 }
 

@@ -49,9 +49,7 @@ export default function CognitoLogin({ onLoginSuccess }: CognitoLoginProps) {
       // Real Cognito authentication
       const session = await cognitoAuth.signIn(email, password);
 
-      // Store session
-      localStorage.setItem('user_session', JSON.stringify(session));
-
+      // No need to store session - user logs in fresh each time
       onLoginSuccess(session);
     } catch (e: any) {
       console.error('Login error:', e);
@@ -104,7 +102,7 @@ export default function CognitoLogin({ onLoginSuccess }: CognitoLoginProps) {
       }
 
       const session = await cognitoAuth.completeNewPasswordChallenge(newPassword, attributes);
-      localStorage.setItem('user_session', JSON.stringify(session));
+      // No need to store session - user logs in fresh each time
       onLoginSuccess(session);
     } catch (e: any) {
       setError(e?.message || 'Failed to set new password. Please try again.');
@@ -125,7 +123,7 @@ export default function CognitoLogin({ onLoginSuccess }: CognitoLoginProps) {
       // Real Cognito MFA confirmation
       const session = await cognitoAuth.confirmMFA(mfaCode);
 
-      localStorage.setItem('user_session', JSON.stringify(session));
+      // No need to store session - user logs in fresh each time
       onLoginSuccess(session);
     } catch (e: any) {
       setError('Invalid MFA code. Please try again.');

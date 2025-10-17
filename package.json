@@ -10,6 +10,8 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@aws-sdk/client-cognito-identity": "^3.910.0",
+    "@aws-sdk/credential-provider-cognito-identity": "^3.910.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.3.2",
     "@tauri-apps/plugin-opener": "^2",

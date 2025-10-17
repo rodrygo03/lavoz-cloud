@@ -7,6 +7,8 @@ pub struct Profile {
     pub id: String,
     pub name: String,
     pub profile_type: ProfileType,
+    #[serde(default)]
+    pub user_id: Option<String>, // Cognito user ID - links profile to authenticated user
     pub rclone_bin: String,
     pub rclone_conf: String,
     pub remote: String,
@@ -179,6 +181,7 @@ impl Profile {
             id: Uuid::new_v4().to_string(),
             name,
             profile_type,
+            user_id: None, // Set by caller if needed
             rclone_bin: "bundled".to_string(), // Will be resolved to extracted path at runtime
             rclone_conf: String::new(),
             remote: "aws".to_string(),
