@@ -85,13 +85,14 @@ function App() {
       console.log('App config loaded:', {
         identityPoolId: appConfig.cognito_identity_pool_id,
         region: appConfig.cognito_region,
-        bucket: appConfig.bucket_name
+        bucket: appConfig.bucket_name,
+        lambdaApiUrl: appConfig.lambda_api_url
       });
 
       const isAdmin = session.groups.includes('Admins');
       console.log('User is admin:', isAdmin);
 
-      // Get temporary AWS credentials from Cognito Identity Pool
+      // Get temporary AWS credentials from Cognito Identity Pool (for manual backups)
       console.log('Getting temporary AWS credentials...');
       const { getTemporaryCredentials } = await import('./services/awsCredentials');
       const tempCreds = await getTemporaryCredentials(
@@ -99,10 +100,29 @@ function App() {
         appConfig.cognito_region,
         session.idToken
       );
-      console.log('Temporary credentials obtained:', {
-        accessKeyId: tempCreds.accessKeyId.substring(0, 10) + '...',
-        hasSessionToken: !!tempCreds.sessionToken
-      });
+      console.log('Temporary credentials obtained');
+
+      // Get or create IAM credentials (for scheduled backups)
+      let iamCreds = null;
+      if (appConfig.lambda_api_url) {
+        try {
+          console.log('Getting IAM credentials for scheduled backups...');
+          const { getOrCreateIAMCredentials, setLambdaApiUrl } = await import('./services/iamCredentials');
+          setLambdaApiUrl(appConfig.lambda_api_url);
+
+          iamCreds = await getOrCreateIAMCredentials(
+            session.userId,
+            session.email,
+            session.accessToken  // Use access token for Lambda
+          );
+          console.log('IAM credentials obtained:', iamCreds.iam_username);
+        } catch (iamError) {
+          console.warn('Failed to get IAM credentials (scheduled backups will not work):', iamError);
+          // Continue without IAM credentials - manual backups will still work
+        }
+      } else {
+        console.warn('Lambda API URL not configured - scheduled backups will not work');
+      }
 
       // Auto-create or get existing profile for this user
       console.log('Creating/loading user profile...');
@@ -121,6 +141,12 @@ function App() {
       setActiveProfile(profile);
 
       console.log('User profile loaded/created successfully:', profile);
+
+      if (iamCreds) {
+        console.log('✅ Scheduled backups enabled with IAM credentials');
+      } else {
+        console.log('⚠️  Scheduled backups disabled - only manual backups available');
+      }
     } catch (error) {
       console.error('Failed to load user profile - FULL ERROR:', error);
       alert(`Failed to load user profile: ${error}`);

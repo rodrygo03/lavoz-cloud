@@ -137,25 +137,43 @@ async fn create_os_schedule(profile: &Profile, schedule: &Schedule) -> Result<()
 }
 
 async fn create_runner_script(profile: &Profile, scripts_dir: &PathBuf) -> Result<PathBuf, String> {
+    use crate::downloader::get_rclone_binary_path;
+
     let script_name = format!("backup-{}.sh", profile.id);
     let script_path = scripts_dir.join(&script_name);
-    
+
     let destination = profile.destination();
     let sources = profile.sources.join(" ");
     let flags = profile.rclone_flags.join(" ");
-    
+
     let operation = match profile.mode {
         BackupMode::Copy => "copy",
         BackupMode::Sync => "sync",
+    };
+
+    // Get actual rclone binary path (not "bundled" string)
+    let rclone_bin = get_rclone_binary_path()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "rclone".to_string()); // Fallback to system rclone
+
+    // Use scheduled rclone config (has permanent IAM credentials)
+    let config_dir = get_config_dir()?;
+    let scheduled_config = config_dir.join("rclone-scheduled.conf");
+    let rclone_config = if scheduled_config.exists() {
+        scheduled_config.to_string_lossy().to_string()
+    } else {
+        // Fallback to regular config (temporary credentials - will fail)
+        profile.rclone_conf.clone()
     };
 
     let script_content = format!(
         r#"#!/bin/bash
 set -euo pipefail
 
-# Cloud Backup App - Auto Backup Script
+# Cloud Backup App - Scheduled Backup Script
 # Profile: {}
 # Generated: {}
+# Uses permanent IAM credentials (not temporary Cognito credentials)
 
 RCLONE_BIN="{}"
 RCLONE_CONFIG="{}"
@@ -167,7 +185,9 @@ FLAGS="{}"
 LOG_FILE="$HOME/.config/cloud-backup-app/logs/backup-{}.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 
-echo "$(date): Starting backup for profile {}" >> "$LOG_FILE"
+echo "$(date): Starting scheduled backup for profile {}" >> "$LOG_FILE"
+echo "$(date): Using rclone: $RCLONE_BIN" >> "$LOG_FILE"
+echo "$(date): Using config: $RCLONE_CONFIG" >> "$LOG_FILE"
 
 # Backup each source
 {}
@@ -176,8 +196,8 @@ echo "$(date): Backup completed for profile {}" >> "$LOG_FILE"
 "#,
         profile.name,
         Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
-        profile.rclone_bin,
-        profile.rclone_conf,
+        rclone_bin,
+        rclone_config,
         destination,
         operation,
         flags,

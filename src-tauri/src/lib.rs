@@ -4,6 +4,7 @@ mod config;
 mod schedule;
 mod aws;
 mod downloader;
+mod iam_storage;
 
 use rclone::*;
 use config::*;
@@ -11,6 +12,7 @@ use schedule::*;
 use aws::*;
 // use dependencies::*; // Removed - using downloader
 use downloader::*;
+use iam_storage::*;
 
 #[tauri::command]
 async fn ping() -> String {
@@ -57,7 +59,12 @@ pub fn run() {
             download_dependencies,
             check_dependencies_needed,
             get_rclone_path,
-            get_aws_path
+            get_aws_path,
+            // IAM credential storage
+            store_iam_credentials,
+            get_stored_iam_credentials,
+            delete_iam_credentials,
+            create_scheduled_rclone_config
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();
