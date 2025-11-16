@@ -397,7 +397,7 @@ async fn create_systemd_schedule(_profile: &Profile, _schedule: &Schedule, _runn
     Err("Linux systemd scheduling not implemented yet".to_string())
 }
 
-fn calculate_next_run(schedule: &Schedule) -> Option<DateTime<Utc>> {
+pub fn calculate_next_run(schedule: &Schedule) -> Option<DateTime<Utc>> {
     if !schedule.enabled {
         return None;
     }
