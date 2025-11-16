@@ -12,6 +12,7 @@ export interface AppConfiguration {
   cognito_identity_pool_id: string;
   cognito_region: string;
   bucket_name: string;
+  lambda_api_url?: string; // Optional: Lambda API for creating IAM users
   is_configured: boolean;
 }
 
