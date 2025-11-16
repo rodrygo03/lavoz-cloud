@@ -12,6 +12,7 @@ interface AppConfiguration {
   cognito_identity_pool_id: string;
   cognito_region: string;
   bucket_name: string;
+  lambda_api_url?: string;
 }
 
 export default function ConfigSetup({ onConfigComplete }: ConfigSetupProps) {
@@ -22,7 +23,8 @@ export default function ConfigSetup({ onConfigComplete }: ConfigSetupProps) {
     cognito_app_client_id: '',
     cognito_identity_pool_id: '',
     cognito_region: 'us-east-1',
-    bucket_name: ''
+    bucket_name: '',
+    lambda_api_url: ''
   });
   const [jsonInput, setJsonInput] = useState('');
   const [error, setError] = useState('');
@@ -173,7 +175,8 @@ export default function ConfigSetup({ onConfigComplete }: ConfigSetupProps) {
   "cognito_app_client_id": "xxxxxxxxx",
   "cognito_identity_pool_id": "us-east-1:xxxx-yyyy",
   "cognito_region": "us-east-1",
-  "bucket_name": "company-backups"
+  "bucket_name": "company-backups",
+  "lambda_api_url": "https://xxxxx.execute-api.us-east-1.amazonaws.com/prod/create-user"
 }`}
               rows={12}
               style={{
@@ -217,7 +220,8 @@ export default function ConfigSetup({ onConfigComplete }: ConfigSetupProps) {
                 cognito_app_client_id: '',
                 cognito_identity_pool_id: '',
                 cognito_region: 'us-east-1',
-                bucket_name: ''
+                bucket_name: '',
+                lambda_api_url: ''
               });
             }}
           >
@@ -294,6 +298,22 @@ export default function ConfigSetup({ onConfigComplete }: ConfigSetupProps) {
               onChange={(e) => setConfig(prev => ({ ...prev, bucket_name: e.target.value }))}
               placeholder="company-backups"
             />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="lambda-api-url">
+              Lambda API URL <span style={{ color: '#888', fontSize: '12px' }}>(Optional - for scheduled backups)</span>
+            </label>
+            <input
+              id="lambda-api-url"
+              type="text"
+              value={config.lambda_api_url || ''}
+              onChange={(e) => setConfig(prev => ({ ...prev, lambda_api_url: e.target.value }))}
+              placeholder="https://xxxxx.execute-api.us-east-1.amazonaws.com/prod/create-user"
+            />
+            <small style={{ color: '#666', fontSize: '12px', display: 'block', marginTop: '4px' }}>
+              Leave blank if you only need manual backups. Required for scheduled backups.
+            </small>
           </div>
 
           {error && (
