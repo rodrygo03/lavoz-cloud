@@ -44,8 +44,9 @@ export default function CloudBrowser({ profile }: CloudBrowserProps) {
     if (!profile) return;
 
     // Check if profile has required configuration
-    if (!profile.bucket || !profile.prefix) {
-      console.log('Profile is missing required configuration (bucket or prefix)');
+    // Note: prefix can be empty string for admin users (full bucket access)
+    if (!profile.bucket || profile.prefix === null || profile.prefix === undefined) {
+      console.log('Profile is missing required configuration (bucket)');
       setFiles([]);
       return;
     }
@@ -55,7 +56,7 @@ export default function CloudBrowser({ profile }: CloudBrowserProps) {
       const cloudFiles = await invoke<CloudFile[]>('list_cloud_files', {
         profile,
         path: path || null,
-        maxDepth: path ? null : 2 // Show more depth for subdirectories
+        maxDepth: 1 // Always show only immediate children of current directory
       });
       setFiles(cloudFiles);
     } catch (error) {

@@ -36,10 +36,16 @@ exports.handler = async (event) => {
 
     console.log(`Processing request for user: ${email} (${cognito_user_id})`);
 
-    // STEP 1: Validate Cognito token (security!)
+    // STEP 1: Validate Cognito token and extract groups (security!)
     console.log('Validating Cognito token...');
     await validateCognitoToken(id_token, cognito_user_id);
     console.log('Token validated successfully');
+
+    // Extract groups from ID token
+    const groups = extractGroupsFromToken(id_token);
+    const isAdmin = groups.includes('Admin');
+    console.log('User groups:', groups);
+    console.log('Is admin:', isAdmin);
 
     // STEP 2: Check if IAM user already exists
     const iamUsername = `backup-user-${cognito_user_id}`;
@@ -84,43 +90,86 @@ exports.handler = async (event) => {
     }));
     console.log('IAM user created successfully');
 
-    // STEP 4: Attach S3 policy (restricted to user's folder)
+    // STEP 4: Attach S3 policy (different policies for admin vs regular users)
     console.log('Attaching S3 policy...');
     const bucketName = process.env.BUCKET_NAME || 'lavoz-backupapp-demo';
-    const policy = {
-      Version: "2012-10-17",
-      Statement: [
-        {
-          Sid: "AllowListOwnFolder",
-          Effect: "Allow",
-          Action: "s3:ListBucket",
-          Resource: `arn:aws:s3:::${bucketName}`,
-          Condition: {
-            StringLike: {
-              "s3:prefix": [
-                `users/${cognito_user_id}/*`,
-                `users/${cognito_user_id}`
-              ]
+
+    let policy;
+    if (isAdmin) {
+      // Admin users get access to admin/ folder
+      console.log('Creating admin policy for admin/ folder');
+      policy = {
+        Version: "2012-10-17",
+        Statement: [
+          {
+            Sid: "AllowListAdminFolder",
+            Effect: "Allow",
+            Action: "s3:ListBucket",
+            Resource: `arn:aws:s3:::${bucketName}`,
+            Condition: {
+              StringLike: {
+                "s3:prefix": [
+                  "admin/*",
+                  "admin"
+                ]
+              }
             }
+          },
+          {
+            Sid: "AllowAccessAdminFolder",
+            Effect: "Allow",
+            Action: [
+              "s3:GetObject",
+              "s3:GetObjectVersion",
+              "s3:PutObject",
+              "s3:PutObjectAcl",
+              "s3:DeleteObject",
+              "s3:DeleteObjectVersion",
+              "s3:AbortMultipartUpload",
+              "s3:ListMultipartUploadParts"
+            ],
+            Resource: `arn:aws:s3:::${bucketName}/admin/*`
           }
-        },
-        {
-          Sid: "AllowAccessOwnFolder",
-          Effect: "Allow",
-          Action: [
-            "s3:GetObject",
-            "s3:GetObjectVersion",
-            "s3:PutObject",
-            "s3:PutObjectAcl",
-            "s3:DeleteObject",
-            "s3:DeleteObjectVersion",
-            "s3:AbortMultipartUpload",
-            "s3:ListMultipartUploadParts"
-          ],
-          Resource: `arn:aws:s3:::${bucketName}/users/${cognito_user_id}/*`
-        }
-      ]
-    };
+        ]
+      };
+    } else {
+      // Regular users get access to their user folder
+      console.log('Creating regular user policy for users/ folder');
+      policy = {
+        Version: "2012-10-17",
+        Statement: [
+          {
+            Sid: "AllowListOwnFolder",
+            Effect: "Allow",
+            Action: "s3:ListBucket",
+            Resource: `arn:aws:s3:::${bucketName}`,
+            Condition: {
+              StringLike: {
+                "s3:prefix": [
+                  `users/${cognito_user_id}/*`,
+                  `users/${cognito_user_id}`
+                ]
+              }
+            }
+          },
+          {
+            Sid: "AllowAccessOwnFolder",
+            Effect: "Allow",
+            Action: [
+              "s3:GetObject",
+              "s3:GetObjectVersion",
+              "s3:PutObject",
+              "s3:PutObjectAcl",
+              "s3:DeleteObject",
+              "s3:DeleteObjectVersion",
+              "s3:AbortMultipartUpload",
+              "s3:ListMultipartUploadParts"
+            ],
+            Resource: `arn:aws:s3:::${bucketName}/users/${cognito_user_id}/*`
+          }
+        ]
+      };
+    }
 
     await iam.send(new PutUserPolicyCommand({
       UserName: iamUsername,
@@ -139,7 +188,10 @@ exports.handler = async (event) => {
     const secretKey = accessKeyResponse.AccessKey.SecretAccessKey;
     console.log(`Access key created: ${accessKey}`);
 
-    // STEP 6: Return credentials
+    // STEP 6: Return credentials with appropriate prefix
+    const s3Prefix = isAdmin ? 'admin' : `users/${cognito_user_id}`;
+    console.log('Returning credentials with s3_prefix:', s3Prefix);
+
     return {
       statusCode: 200,
       headers: {
@@ -153,7 +205,7 @@ exports.handler = async (event) => {
         secret_access_key: secretKey,
         region: process.env.AWS_REGION || 'us-east-1',
         bucket: bucketName,
-        s3_prefix: `users/${cognito_user_id}`
+        s3_prefix: s3Prefix
       })
     };
 
@@ -193,5 +245,31 @@ async function validateCognitoToken(idToken, expectedUserId) {
   } catch (err) {
     console.error('Token validation failed:', err);
     throw new Error(`Invalid Cognito token: ${err.message}`);
+  }
+}
+
+function extractGroupsFromToken(idToken) {
+  // Decode JWT token to extract cognito:groups claim
+  // JWT format: header.payload.signature
+  try {
+    const parts = idToken.split('.');
+    if (parts.length !== 3) {
+      console.warn('Invalid JWT token format');
+      return [];
+    }
+
+    // Decode the payload (second part)
+    const payload = JSON.parse(
+      Buffer.from(parts[1], 'base64').toString('utf8')
+    );
+
+    // Extract cognito:groups claim
+    const groups = payload['cognito:groups'] || [];
+    console.log('Extracted groups from token:', groups);
+
+    return groups;
+  } catch (err) {
+    console.error('Failed to extract groups from token:', err);
+    return [];
   }
 }

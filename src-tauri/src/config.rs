@@ -70,16 +70,52 @@ pub async fn get_or_create_user_profile(
     let mut config = load_config().await?;
 
     // Check if user already has a profile
-    if let Some(existing_profile) = config.profiles.iter().find(|p| p.user_id.as_ref() == Some(&user_id)) {
+    if let Some(profile_index) = config.profiles.iter().position(|p| p.user_id.as_ref() == Some(&user_id)) {
+        let mut profile_updated = false;
+
+        // Check if admin status has changed
+        let expected_profile_type = if is_admin {
+            ProfileType::Admin
+        } else {
+            ProfileType::User
+        };
+
+        let expected_prefix = if is_admin {
+            "admin".to_string()
+        } else {
+            format!("users/{}", user_id)
+        };
+
+        // Update profile type if changed
+        if config.profiles[profile_index].profile_type != expected_profile_type {
+            config.profiles[profile_index].profile_type = expected_profile_type;
+            config.profiles[profile_index].updated_at = Utc::now();
+            profile_updated = true;
+        }
+
+        // Update prefix if changed
+        if config.profiles[profile_index].prefix != expected_prefix {
+            config.profiles[profile_index].prefix = expected_prefix;
+            config.profiles[profile_index].updated_at = Utc::now();
+            profile_updated = true;
+        }
+
         // Update rclone config with new credentials (they may have been refreshed)
         update_rclone_config_for_cognito(
-            &existing_profile,
+            &config.profiles[profile_index],
             &access_key_id,
             &secret_access_key,
             &session_token,
             &region
         ).await?;
-        return Ok(existing_profile.clone());
+
+        // Save config if profile was updated
+        if profile_updated {
+            config.updated_at = Utc::now();
+            save_config(&config).await?;
+        }
+
+        return Ok(config.profiles[profile_index].clone());
     }
 
     // Create new profile for this user
@@ -97,7 +133,7 @@ pub async fn get_or_create_user_profile(
     // Structure: s3://bucket/users/{cognito-user-id}/
     // The IAM policy uses ${cognito-identity.amazonaws.com:sub} which is the user_id
     profile.prefix = if is_admin {
-        String::new() // Admin has no prefix - can access entire bucket
+        "admin".to_string() // Admin backups go to admin/ folder but can view entire bucket
     } else {
         format!("users/{}", user_id) // Regular users get users/{cognito-sub}/
     };

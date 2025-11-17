@@ -183,7 +183,7 @@ export default function Sidebar({
               <div className="profile-details">
                 <div className="profile-name">{userSession.email}</div>
                 <div className="profile-meta">
-                  {userSession.groups.includes('Admins') ? 'Administrator' : 'Employee'}
+                  {userSession.groups.includes('Admin') ? 'Administrator' : 'Employee'}
                 </div>
               </div>
             </div>

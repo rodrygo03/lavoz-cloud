@@ -89,7 +89,7 @@ function App() {
         lambdaApiUrl: appConfig.lambda_api_url
       });
 
-      const isAdmin = session.groups.includes('Admins');
+      const isAdmin = session.groups.includes('Admin');
       console.log('User is admin:', isAdmin);
 
       // Get temporary AWS credentials from Cognito Identity Pool (for manual backups)
