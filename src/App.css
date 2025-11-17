@@ -872,6 +872,10 @@ input.error {
 /* Cloud Browser */
 .cloud-browser {
   padding: 2rem;
+  height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .browser-header {
@@ -968,6 +972,10 @@ input.error {
   border: 1px solid var(--border-color);
   border-radius: var(--radius);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .file-list-header {
@@ -977,8 +985,8 @@ input.error {
 }
 
 .file-items {
-  max-height: 800px;
   overflow: auto;
+  flex: 1;
 }
 
 .file-item {
@@ -1283,10 +1291,10 @@ input.error {
 }
 
 .file-list {
-  max-height: 200px;
-  overflow: auto;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
 }
 
 .file-item.danger {

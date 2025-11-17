@@ -360,6 +360,7 @@ pub async fn backup_run(profile: Profile, dry_run: bool) -> Result<BackupOperati
             "--progress".to_string(),
             "--stats=1s".to_string(),
             "--stats-one-line".to_string(),
+            "-v".to_string(), // Verbose mode to log file operations
         ];
 
         if dry_run {
@@ -381,7 +382,13 @@ pub async fn backup_run(profile: Profile, dry_run: bool) -> Result<BackupOperati
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        
+
+        println!("[DEBUG] ===== STDOUT for {} =====", source);
+        println!("{}", stdout);
+        println!("[DEBUG] ===== STDERR for {} =====", source);
+        println!("{}", stderr);
+        println!("[DEBUG] ===== END OUTPUT =====");
+
         combined_output.push_str(&format!("=== Source: {} ===\n", source));
         combined_output.push_str(&stdout);
         combined_output.push_str(&stderr);
@@ -409,11 +416,15 @@ pub async fn backup_run(profile: Profile, dry_run: bool) -> Result<BackupOperati
             return Ok(failed_operation);
         }
 
-        // Parse stats from output (simplified)
-        // In reality, we'd need more sophisticated parsing
-        if let Some((files, bytes)) = parse_rclone_stats(&stderr) {
-            total_files += files;
+        // Parse stats from output - rclone outputs to stdout with --stats-one-line and -v
+        // Parse both bytes and file count from stdout
+        let (files_from_operations, _) = parse_rclone_file_operations(&stdout);
+        if let Some((_, bytes)) = parse_rclone_stats(&stdout) {
+            println!("[DEBUG] Parsed rclone stats for source {}: {} files, {} bytes", source, files_from_operations, bytes);
+            total_files += files_from_operations;
             total_bytes += bytes;
+        } else {
+            println!("[DEBUG] Could not parse rclone stats from stdout for source: {}", source);
         }
     }
 
@@ -429,6 +440,8 @@ pub async fn backup_run(profile: Profile, dry_run: bool) -> Result<BackupOperati
         error_message: None,
         log_output: combined_output,
     };
+
+    println!("[DEBUG] Manual backup completed - files: {}, bytes: {}", total_files, total_bytes);
 
     // Save the operation to config
     if let Err(e) = crate::config::save_backup_operation(operation.clone()).await {
@@ -459,6 +472,7 @@ pub async fn restore_files(profile: Profile, remote_paths: Vec<String>, local_ta
             "--progress".to_string(),
             "--stats=1s".to_string(),
             "--stats-one-line".to_string(),
+            "-v".to_string(), // Verbose mode to log file operations
             "--checksum".to_string(),
             "--fast-list".to_string(),
         ];
@@ -474,7 +488,13 @@ pub async fn restore_files(profile: Profile, remote_paths: Vec<String>, local_ta
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        
+
+        println!("[DEBUG] ===== STDOUT for restore {} =====", remote_path);
+        println!("{}", stdout);
+        println!("[DEBUG] ===== STDERR for restore {} =====", remote_path);
+        println!("{}", stderr);
+        println!("[DEBUG] ===== END OUTPUT =====");
+
         combined_output.push_str(&format!("=== Restoring: {} ===\n", remote_path));
         combined_output.push_str(&stdout);
         combined_output.push_str(&stderr);
@@ -502,9 +522,15 @@ pub async fn restore_files(profile: Profile, remote_paths: Vec<String>, local_ta
             return Ok(failed_operation);
         }
 
-        if let Some((files, bytes)) = parse_rclone_stats(&stderr) {
-            total_files += files;
+        // Parse stats from output - rclone outputs to stdout with --stats-one-line and -v
+        // Parse both bytes and file count from stdout
+        let (files_from_operations, _) = parse_rclone_file_operations(&stdout);
+        if let Some((_, bytes)) = parse_rclone_stats(&stdout) {
+            println!("[DEBUG] Parsed rclone stats for restore {}: {} files, {} bytes", remote_path, files_from_operations, bytes);
+            total_files += files_from_operations;
             total_bytes += bytes;
+        } else {
+            println!("[DEBUG] Could not parse rclone stats from stdout for restore: {}", remote_path);
         }
     }
 
@@ -521,6 +547,8 @@ pub async fn restore_files(profile: Profile, remote_paths: Vec<String>, local_ta
         log_output: combined_output,
     };
 
+    println!("[DEBUG] Restore completed - files: {}, bytes: {}", total_files, total_bytes);
+
     // Save the operation to config
     if let Err(e) = crate::config::save_backup_operation(operation.clone()).await {
         eprintln!("Failed to save restore operation: {}", e);
@@ -529,34 +557,144 @@ pub async fn restore_files(profile: Profile, remote_paths: Vec<String>, local_ta
     Ok(operation)
 }
 
-fn parse_rclone_stats(output: &str) -> Option<(u64, u64)> {
-    // Simplified stats parsing - would need more robust implementation
-    // Look for patterns like "Transferred: 123 files, 456 bytes"
+fn parse_rclone_file_operations(output: &str) -> (u64, u64) {
+    // Count file operations from rclone output (stdout with -v flag)
+    // Rclone outputs messages like:
+    // "2025/01/16 12:34:56 INFO  : file.txt: Copied (new)"
+    // "2025/01/16 12:34:56 INFO  : file2.txt: Copied (replaced existing)"
+
+    let mut files_copied = 0u64;
+    let mut files_deleted = 0u64;
+
     for line in output.lines() {
-        if line.contains("Transferred:") {
-            // This is a very basic parser - production would need regex or more sophisticated parsing
-            return Some((0, 0)); // Placeholder
+        if line.contains("Copied (new)") || line.contains("Copied (replaced existing)") || line.contains("Copied (server-side copy)") {
+            files_copied += 1;
+        } else if line.contains("Deleted") {
+            files_deleted += 1;
         }
     }
-    None
+
+    println!("[DEBUG] Parsed file operations from stderr: {} copied, {} deleted", files_copied, files_deleted);
+    (files_copied, files_deleted)
+}
+
+fn parse_rclone_stats(output: &str) -> Option<(u64, u64)> {
+    use regex::Regex;
+
+    // Rclone with --stats-one-line outputs like:
+    // "66 B / 66 B, 100%, 0 B/s, ETA -"
+    // "1.234 MiB / 2.468 MiB, 50%, 1.5 MiB/s, ETA 1s"
+    // Also handle verbose format with "Transferred:" prefix
+
+    let stats_one_line_regex = Regex::new(r"^\s*([0-9.,]+\s*[KMGT]?i?B)\s*/\s*([0-9.,]+\s*[KMGT]?i?B)\s*,\s*(\d+)%").ok()?;
+    let transferred_regex = Regex::new(r"Transferred:\s+([0-9.,]+\s*[KMGT]?i?B)\s*/\s*([0-9.,]+\s*[KMGT]?i?B)").ok()?;
+
+    let mut bytes_transferred = 0u64;
+    let mut files_transferred = 0u64;
+
+    for line in output.lines() {
+        println!("[DEBUG] Parsing line: {}", line);
+
+        // Try stats-one-line format first (most common with current flags)
+        if let Some(caps) = stats_one_line_regex.captures(line) {
+            let bytes_str = &caps[1];
+            if let Ok(bytes) = parse_byte_size(bytes_str) {
+                println!("[DEBUG] Parsed byte size from stats-one-line '{}': {} bytes", bytes_str, bytes);
+                bytes_transferred = bytes;
+            }
+        }
+        // Try verbose "Transferred:" format
+        else if let Some(caps) = transferred_regex.captures(line) {
+            let bytes_str = &caps[1];
+            if let Ok(bytes) = parse_byte_size(bytes_str) {
+                println!("[DEBUG] Parsed byte size from Transferred line '{}': {} bytes", bytes_str, bytes);
+                bytes_transferred = bytes;
+            }
+        }
+    }
+
+    // For file count, parse stderr/logs for actual file transfer messages
+    // Since --stats-one-line doesn't show file counts, we'll estimate from byte transfers
+    // A better approach would be to count "Copied (new)" or similar messages in verbose output
+
+    if bytes_transferred > 0 {
+        println!("[DEBUG] Returning stats: files={}, bytes={}", files_transferred, bytes_transferred);
+        Some((files_transferred, bytes_transferred))
+    } else {
+        println!("[DEBUG] No stats found in output");
+        None
+    }
+}
+
+fn parse_byte_size(size_str: &str) -> Result<u64, String> {
+    let size_str = size_str.replace(",", "").replace(" ", "");
+
+    if size_str.ends_with("KiB") {
+        let num: f64 = size_str.trim_end_matches("KiB").parse().map_err(|e: std::num::ParseFloatError| e.to_string())?;
+        Ok((num * 1024.0) as u64)
+    } else if size_str.ends_with("KB") {
+        let num: f64 = size_str.trim_end_matches("KB").parse().map_err(|e: std::num::ParseFloatError| e.to_string())?;
+        Ok((num * 1000.0) as u64)
+    } else if size_str.ends_with("MiB") {
+        let num: f64 = size_str.trim_end_matches("MiB").parse().map_err(|e: std::num::ParseFloatError| e.to_string())?;
+        Ok((num * 1024.0 * 1024.0) as u64)
+    } else if size_str.ends_with("MB") {
+        let num: f64 = size_str.trim_end_matches("MB").parse().map_err(|e: std::num::ParseFloatError| e.to_string())?;
+        Ok((num * 1000.0 * 1000.0) as u64)
+    } else if size_str.ends_with("GiB") {
+        let num: f64 = size_str.trim_end_matches("GiB").parse().map_err(|e: std::num::ParseFloatError| e.to_string())?;
+        Ok((num * 1024.0 * 1024.0 * 1024.0) as u64)
+    } else if size_str.ends_with("GB") {
+        let num: f64 = size_str.trim_end_matches("GB").parse().map_err(|e: std::num::ParseFloatError| e.to_string())?;
+        Ok((num * 1000.0 * 1000.0 * 1000.0) as u64)
+    } else if size_str.ends_with("TiB") {
+        let num: f64 = size_str.trim_end_matches("TiB").parse().map_err(|e: std::num::ParseFloatError| e.to_string())?;
+        Ok((num * 1024.0 * 1024.0 * 1024.0 * 1024.0) as u64)
+    } else if size_str.ends_with("TB") {
+        let num: f64 = size_str.trim_end_matches("TB").parse().map_err(|e: std::num::ParseFloatError| e.to_string())?;
+        Ok((num * 1000.0 * 1000.0 * 1000.0 * 1000.0) as u64)
+    } else if size_str.ends_with("B") {
+        let num: u64 = size_str.trim_end_matches("B").parse().map_err(|e: std::num::ParseIntError| e.to_string())?;
+        Ok(num)
+    } else {
+        size_str.parse::<u64>().map_err(|e| e.to_string())
+    }
 }
 
 #[command]
 pub async fn get_backup_logs(profile_id: String, limit: Option<usize>) -> Result<Vec<BackupOperation>, String> {
     let config = crate::config::load_config().await?;
-    
+
+    println!("[DEBUG] get_backup_logs called for profile_id: {}", profile_id);
+    println!("[DEBUG] Total operations in config: {}", config.backup_operations.len());
+
     // Filter operations for the specific profile and apply limit
     let mut operations: Vec<BackupOperation> = config.backup_operations
         .into_iter()
-        .filter(|op| op.profile_id == profile_id)
+        .filter(|op| {
+            let matches = op.profile_id == profile_id;
+            if !matches {
+                println!("[DEBUG] Filtering out operation with profile_id: {}", op.profile_id);
+            }
+            matches
+        })
         .collect();
+
+    println!("[DEBUG] Operations after filtering by profile_id: {}", operations.len());
 
     // Sort by started_at descending (newest first)
     operations.sort_by(|a, b| b.started_at.cmp(&a.started_at));
 
     // Apply limit if specified
     if let Some(limit) = limit {
+        println!("[DEBUG] Applying limit: {}", limit);
         operations.truncate(limit);
+    }
+
+    println!("[DEBUG] Returning {} operations", operations.len());
+    if !operations.is_empty() {
+        println!("[DEBUG] Most recent operation: started_at={:?}, files={}, bytes={}",
+            operations[0].started_at, operations[0].files_transferred, operations[0].bytes_transferred);
     }
 
     Ok(operations)
