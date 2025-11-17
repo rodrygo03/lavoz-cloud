@@ -472,6 +472,7 @@ pub async fn restore_files(profile: Profile, remote_paths: Vec<String>, local_ta
             "--progress".to_string(),
             "--stats=1s".to_string(),
             "--stats-one-line".to_string(),
+            "-v".to_string(), // Verbose mode to log file operations
             "--checksum".to_string(),
             "--fast-list".to_string(),
         ];
@@ -487,7 +488,13 @@ pub async fn restore_files(profile: Profile, remote_paths: Vec<String>, local_ta
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        
+
+        println!("[DEBUG] ===== STDOUT for restore {} =====", remote_path);
+        println!("{}", stdout);
+        println!("[DEBUG] ===== STDERR for restore {} =====", remote_path);
+        println!("{}", stderr);
+        println!("[DEBUG] ===== END OUTPUT =====");
+
         combined_output.push_str(&format!("=== Restoring: {} ===\n", remote_path));
         combined_output.push_str(&stdout);
         combined_output.push_str(&stderr);
@@ -515,9 +522,15 @@ pub async fn restore_files(profile: Profile, remote_paths: Vec<String>, local_ta
             return Ok(failed_operation);
         }
 
-        if let Some((files, bytes)) = parse_rclone_stats(&stderr) {
-            total_files += files;
+        // Parse stats from output - rclone outputs to stdout with --stats-one-line and -v
+        // Parse both bytes and file count from stdout
+        let (files_from_operations, _) = parse_rclone_file_operations(&stdout);
+        if let Some((_, bytes)) = parse_rclone_stats(&stdout) {
+            println!("[DEBUG] Parsed rclone stats for restore {}: {} files, {} bytes", remote_path, files_from_operations, bytes);
+            total_files += files_from_operations;
             total_bytes += bytes;
+        } else {
+            println!("[DEBUG] Could not parse rclone stats from stdout for restore: {}", remote_path);
         }
     }
 
@@ -533,6 +546,8 @@ pub async fn restore_files(profile: Profile, remote_paths: Vec<String>, local_ta
         error_message: None,
         log_output: combined_output,
     };
+
+    println!("[DEBUG] Restore completed - files: {}, bytes: {}", total_files, total_bytes);
 
     // Save the operation to config
     if let Err(e) = crate::config::save_backup_operation(operation.clone()).await {
