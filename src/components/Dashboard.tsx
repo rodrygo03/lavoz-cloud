@@ -97,20 +97,24 @@ export default function Dashboard({ profile }: DashboardProps) {
     console.log(`Starting backup for profile: ${profile.name}`);
     setIsRunning(true);
     setLogs('Starting backup...\n');
-    
+
     try {
       console.log('Invoking backup_run command');
       const operation = await invoke<BackupOperation>('backup_run', {
         profile,
         dryRun: false
       });
-      
+
       console.log('Backup operation result:', operation);
       setLastBackup(operation);
       setLogs(operation.log_output);
-      
+
       if (operation.status === 'Completed') {
         console.log('Backup completed successfully');
+
+        // Reload dashboard data to show updated schedule (last_run, next_run)
+        await loadDashboardData();
+
         alert('Backup completed successfully!');
       } else if (operation.status === 'Failed') {
         console.error('Backup failed:', operation.error_message);
@@ -315,10 +319,11 @@ export default function Dashboard({ profile }: DashboardProps) {
                 <div className="schedule-details">
                   <div className="schedule-frequency">
                     {/* Format schedule frequency based on type */}
+                    {schedule.frequency === 'Daily' && 'Daily'}
                     {typeof schedule.frequency === 'object' && 'Daily' in schedule.frequency && 'Daily'}
-                    {typeof schedule.frequency === 'object' && 'Weekly' in schedule.frequency && 
+                    {typeof schedule.frequency === 'object' && 'Weekly' in schedule.frequency &&
                       `Weekly (${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][schedule.frequency.Weekly]})`}
-                    {typeof schedule.frequency === 'object' && 'Monthly' in schedule.frequency && 
+                    {typeof schedule.frequency === 'object' && 'Monthly' in schedule.frequency &&
                       `Monthly (${schedule.frequency.Monthly}th)`}
                   </div>
                   <div className="schedule-time">at {formatTime12Hour(schedule.time)}</div>

@@ -430,7 +430,7 @@ pub async fn backup_run(profile: Profile, dry_run: bool) -> Result<BackupOperati
 
     let operation = BackupOperation {
         id: operation_id,
-        profile_id: profile.id,
+        profile_id: profile.id.clone(),
         operation_type: OperationType::Backup,
         status: OperationStatus::Completed,
         started_at,
@@ -446,6 +446,11 @@ pub async fn backup_run(profile: Profile, dry_run: bool) -> Result<BackupOperati
     // Save the operation to config
     if let Err(e) = crate::config::save_backup_operation(operation.clone()).await {
         eprintln!("Failed to save backup operation: {}", e);
+    }
+
+    // Update the schedule's last_run and next_run after manual backup
+    if let Err(e) = crate::config::update_schedule_after_backup(&profile.id, started_at).await {
+        eprintln!("Failed to update schedule after backup: {}", e);
     }
 
     Ok(operation)

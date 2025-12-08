@@ -531,7 +531,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                         if (!schedule) {
                           const newSchedule: Schedule = {
                             enabled: e.target.checked,
-                            frequency: { Daily: null },
+                            frequency: 'Daily',
                             time: "02:00",
                             last_run: undefined,
                             next_run: undefined
@@ -550,15 +550,17 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                   <label>{t('settings.frequency')}</label>
                   <select
                     value={
+                      schedule && schedule.frequency === 'Daily' ? 'daily' :
                       schedule && typeof schedule.frequency === 'object' && 'Daily' in schedule.frequency ? 'daily' :
                       schedule && typeof schedule.frequency === 'object' && 'Weekly' in schedule.frequency ? 'weekly' :
+                      schedule && typeof schedule.frequency === 'object' && 'Monthly' in schedule.frequency ? 'monthly' :
                       'daily'
                     }
                     onChange={(e) => {
                       let newFreq: ScheduleFrequency;
                       switch (e.target.value) {
                         case 'daily':
-                          newFreq = { Daily: null };
+                          newFreq = 'Daily';
                           break;
                         case 'weekly':
                           newFreq = { Weekly: 1 }; // Monday
@@ -567,7 +569,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                           newFreq = { Monthly: 1 };
                           break;
                         default:
-                          newFreq = { Daily: null };
+                          newFreq = 'Daily';
                       }
                       if (!schedule) {
                         const newSchedule: Schedule = {
@@ -607,7 +609,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                         if (!schedule) {
                           const newSchedule: Schedule = {
                             enabled: false,
-                            frequency: { Daily: null },
+                            frequency: 'Daily',
                             time: newTime,
                             last_run: undefined,
                             next_run: undefined
@@ -636,7 +638,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                         if (!schedule) {
                           const newSchedule: Schedule = {
                             enabled: false,
-                            frequency: { Daily: null },
+                            frequency: 'Daily',
                             time: newTime,
                             last_run: undefined,
                             next_run: undefined

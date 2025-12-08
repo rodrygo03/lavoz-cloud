@@ -299,34 +299,71 @@ pub async fn download_dependencies(app: AppHandle) -> Result<String, String> {
     Ok("Dependencies installed via Homebrew: rclone and awscli".to_string())
 }
 
-/// Get the path to the rclone binary (via brew or system)
+/// Get the path to the rclone binary (bundled with app, brew, or system)
 pub fn get_rclone_binary_path() -> Result<PathBuf, String> {
+    // First, check the source binaries directory (for development mode)
+    // This is where the binaries are located before bundling
+    if let Ok(exe_path) = std::env::current_exe() {
+        // During development, look relative to the project root
+        if let Some(exe_dir) = exe_path.parent() {
+            // Try ../binaries/rclone-{arch}-apple-darwin pattern
+            let arch = std::env::consts::ARCH;
+            let dev_binary_name = format!("rclone-{}-apple-darwin", arch);
+
+            // Look for binaries in project structure
+            let possible_paths = vec![
+                exe_dir.join("../binaries").join(&dev_binary_name),
+                exe_dir.join("../../binaries").join(&dev_binary_name),
+                exe_dir.join("../../../binaries").join(&dev_binary_name),
+                exe_dir.join("../../../../src-tauri/binaries").join(&dev_binary_name),
+            ];
+
+            for path in possible_paths {
+                if let Ok(canonical) = path.canonicalize() {
+                    if canonical.exists() {
+                        return Ok(canonical);
+                    }
+                }
+            }
+        }
+
+        // When bundled in a macOS .app, the structure is:
+        // MyApp.app/Contents/MacOS/my-app (current_exe)
+        // MyApp.app/Contents/Resources/rclone (bundled binary)
+        if let Some(contents_dir) = exe_path.parent().and_then(|p| p.parent()) {
+            let bundled_path = contents_dir.join("Resources").join("rclone");
+            if bundled_path.exists() {
+                return Ok(bundled_path);
+            }
+        }
+    }
+
     // Check common brew locations
     let brew_paths = vec![
         "/opt/homebrew/bin/rclone",    // Apple Silicon
         "/usr/local/bin/rclone",       // Intel Mac
     ];
-    
+
     for path in brew_paths {
         let path_buf = PathBuf::from(path);
         if path_buf.exists() {
             return Ok(path_buf);
         }
     }
-    
+
     // Fallback to system PATH
     let output = std::process::Command::new("which")
         .arg("rclone")
         .output();
-    
+
     if let Ok(output) = output {
         if output.status.success() {
             let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
             return Ok(PathBuf::from(path_str));
         }
     }
-    
-    Err("rclone not found. Please run dependency installation first.".to_string())
+
+    Err("rclone not found. Please ensure rclone is bundled with the app or install it via Homebrew.".to_string())
 }
 
 /// Get the path to the AWS CLI binary (via brew or system)
@@ -362,7 +399,18 @@ pub fn get_aws_binary_path() -> Result<PathBuf, String> {
 /// Check if dependencies need to be downloaded
 #[command]
 pub async fn check_dependencies_needed() -> Result<bool, String> {
-    Ok(!are_dependencies_installed()?)
+    // Since we bundle rclone with the app, we don't need to check for installation
+    // Just verify the bundled binary is accessible
+    match get_rclone_binary_path() {
+        Ok(_) => {
+            // Bundled rclone or system rclone found, no download needed
+            Ok(false)
+        }
+        Err(_) => {
+            // No bundled binary and no system installation, need download
+            Ok(!are_dependencies_installed()?)
+        }
+    }
 }
 
 /// Command to get the rclone binary path

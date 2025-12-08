@@ -2,6 +2,11 @@
 node_modules/
 src-tauri/target/
 
+# Bundled binaries (architecture-specific)
+src-tauri/binaries/rclone-*
+!src-tauri/binaries/.gitkeep
+!src-tauri/binaries/README.md
+
 # Build outputs
 dist/
 dist-ssr/

@@ -402,16 +402,20 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
     
     // Parse the log file for backup operations
     // Support both "Starting backup" and "Starting scheduled backup"
-    let start_regex = Regex::new(r"(\w{3} \w{3} \d{1,2} \d{2}:\d{2}:\d{2} \w{3} \d{4}): Starting (?:scheduled )?backup for profile (.+)").unwrap();
-    let complete_regex = Regex::new(r"(\w{3} \w{3} \d{1,2} \d{2}:\d{2}:\d{2} \w{3} \d{4}): Backup completed for profile (.+)").unwrap();
+    // Note: \s+ handles variable whitespace (date command uses padding for single-digit days)
+    let start_regex = Regex::new(r"(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\w{3}\s+\d{4}): Starting (?:scheduled )?backup for profile (.+)").unwrap();
+    let complete_regex = Regex::new(r"(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\w{3}\s+\d{4}): Backup completed for profile (.+)").unwrap();
     let transferred_regex = Regex::new(r"Transferred:\s+(\d+) / (\d+), \d+%").unwrap();
     let stats_regex = Regex::new(r"Transferred:\s+([0-9.,]+\s*[KMGT]?i?B) / ([0-9.,]+\s*[KMGT]?i?B)").unwrap();
     
     let lines: Vec<&str> = log_content.lines().collect();
     let mut current_operation: Option<crate::models::BackupOperation> = None;
-    
+
+    println!("[DEBUG] sync_scheduled_backup_logs: Processing {} lines", lines.len());
+
     for line in lines {
         if let Some(caps) = start_regex.captures(line) {
+            println!("[DEBUG] Matched start line: {}", line);
             let timestamp_str = &caps[1];
             let profile_name = &caps[2];
 
@@ -446,7 +450,7 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
                 }
             }
         } else if let Some(_caps) = complete_regex.captures(line) {
-            println!("[DEBUG] Found backup completion line");
+            println!("[DEBUG] Matched completion line: {}", line);
             if let Some(ref mut op) = current_operation {
                 println!("[DEBUG] Marking operation as completed");
                 op.status = crate::models::OperationStatus::Completed;
@@ -464,12 +468,13 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
                         op.id, op.started_at, op.files_transferred, op.bytes_transferred);
                     save_backup_operation(op.clone()).await?;
                     operations_created += 1;
-
-                    // Update the schedule's last_run and next_run
-                    update_schedule_after_run(&profile_id, op.started_at).await?;
                 } else {
                     println!("[DEBUG] Operation already saved, skipping duplicate at {:?}", op.started_at);
                 }
+
+                // ALWAYS update the schedule's last_run and next_run, even for duplicates
+                // This ensures the schedule is correct even if the operation was synced before the schedule update logic was added
+                update_schedule_after_run(&profile_id, op.started_at).await?;
 
                 current_operation = None;
             }
@@ -509,12 +514,13 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
         if !already_saved {
             save_backup_operation(op).await?;
             operations_created += 1;
-
-            // Update the schedule's last_run and next_run
-            update_schedule_after_run(&profile_id, started_at).await?;
         } else {
             println!("[DEBUG] Final operation already saved, skipping duplicate at {:?}", started_at);
         }
+
+        // ALWAYS update the schedule's last_run and next_run, even for duplicates
+        // This ensures the schedule is correct even if the operation was synced before the schedule update logic was added
+        update_schedule_after_run(&profile_id, started_at).await?;
     }
 
     println!("[DEBUG] sync_scheduled_backup_logs: Created {} new operations", operations_created);
@@ -522,6 +528,11 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
 }
 
 async fn update_schedule_after_run(profile_id: &str, backup_started_at: chrono::DateTime<Utc>) -> Result<(), String> {
+    update_schedule_after_backup(profile_id, backup_started_at).await
+}
+
+/// Public function to update schedule after any backup (manual or scheduled)
+pub async fn update_schedule_after_backup(profile_id: &str, backup_started_at: chrono::DateTime<Utc>) -> Result<(), String> {
     let mut config = load_config().await?;
     let mut updated = false;
 

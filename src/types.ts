@@ -89,8 +89,8 @@ export interface Schedule {
   next_run?: string;
 }
 
-export type ScheduleFrequency = 
-  | { Daily: null }
+export type ScheduleFrequency =
+  | 'Daily'  // Unit variant serializes as string
   | { Weekly: number }
   | { Monthly: number };
 
