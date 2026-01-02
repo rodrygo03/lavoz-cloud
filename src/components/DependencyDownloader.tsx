@@ -26,8 +26,7 @@ export default function DependencyDownloader({ onDownloadComplete }: DependencyD
   const [error, setError] = useState<string | null>(null);
   const [brewProgress, setBrewProgress] = useState<DownloadProgress>({ downloaded: 0, status: 'Waiting...' });
   const [rcloneProgress, setRcloneProgress] = useState<DownloadProgress>({ downloaded: 0, status: 'Waiting...' });
-  const [awsProgress, setAwsProgress] = useState<DownloadProgress>({ downloaded: 0, status: 'Waiting...' });
-  const [currentDownload, setCurrentDownload] = useState<'none' | 'brew' | 'rclone' | 'aws'>('none');
+  const [currentDownload, setCurrentDownload] = useState<'none' | 'brew' | 'rclone'>('none');
 
   useEffect(() => {
     // Listen for download progress events
@@ -40,11 +39,6 @@ export default function DependencyDownloader({ onDownloadComplete }: DependencyD
       await listen<DownloadProgress>('rclone-download-progress', (event) => {
         setRcloneProgress(event.payload);
         setCurrentDownload('rclone');
-      });
-
-      await listen<DownloadProgress>('aws-download-progress', (event) => {
-        setAwsProgress(event.payload);
-        setCurrentDownload('aws');
       });
 
       await listen('download-start', () => {
@@ -208,30 +202,6 @@ export default function DependencyDownloader({ onDownloadComplete }: DependencyD
             )}
           </div>
 
-          {/* AWS CLI Download Status */}
-          <div className={`download-item ${currentDownload === 'aws' ? 'active' : ''}`}>
-            <div className="download-header">
-              <div className="download-info">
-                <strong>AWS CLI</strong>
-                <span className="download-desc">{t('download.awsDesc')}</span>
-              </div>
-              <div className="download-progress-text">
-                {isDownloading && currentDownload === 'aws' ? (
-                  <span>{formatBytes(awsProgress.downloaded)} / {awsProgress.total ? formatBytes(awsProgress.total) : '?'}</span>
-                ) : (
-                  <span>{awsProgress.status}</span>
-                )}
-              </div>
-            </div>
-            {isDownloading && currentDownload === 'aws' && (
-              <div className="progress-bar">
-                <div 
-                  className="progress-fill" 
-                  style={{ width: `${getProgressPercentage(awsProgress)}%` }}
-                ></div>
-              </div>
-            )}
-          </div>
         </div>
 
         <div className="downloader-actions">
@@ -263,9 +233,6 @@ export default function DependencyDownloader({ onDownloadComplete }: DependencyD
             </div>
             <div className="help-item">
               <strong>rclone:</strong> {t('download.rcloneHelp')}
-            </div>
-            <div className="help-item">
-              <strong>AWS CLI:</strong> {t('download.awsHelp')}
             </div>
           </div>
         </div>

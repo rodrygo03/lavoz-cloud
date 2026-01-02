@@ -29,4 +29,40 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+  // Fix AWS SDK compatibility issues with Vite/Rollup
+  build: {
+    commonjsOptions: {
+      include: [/node_modules/],
+      transformMixedEsModules: true,
+    },
+    rollupOptions: {
+      output: {
+        manualChunks: (id: string) => {
+          // Bundle AWS SDK packages together
+          if (id.indexOf('node_modules/@aws-sdk') !== -1 || id.indexOf('node_modules/@aws-crypto') !== -1) {
+            return 'aws-sdk';
+          }
+        },
+      },
+    },
+  },
+  optimizeDeps: {
+    include: [
+      '@aws-sdk/client-cognito-identity',
+      '@aws-sdk/credential-provider-cognito-identity',
+      '@aws-crypto/sha256-browser',
+      '@aws-crypto/sha256-js',
+      '@aws-crypto/util',
+      'tslib',
+    ],
+    esbuildOptions: {
+      target: 'esnext',
+    },
+  },
+  resolve: {
+    alias: {
+      // Force all AWS packages to use the same tslib version
+      'tslib': 'tslib/tslib.es6.js',
+    },
+  },
 }));

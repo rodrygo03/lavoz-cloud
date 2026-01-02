@@ -35,19 +35,60 @@ pub fn get_config_file() -> Result<PathBuf, String> {
 
 pub async fn load_config() -> Result<AppConfig, String> {
     let config_file = get_config_file()?;
-    
+
     if !config_file.exists() {
         return Ok(AppConfig::default());
     }
 
-    let content = fs::read_to_string(config_file).map_err(|e| e.to_string())?;
-    serde_json::from_str(&content).map_err(|e| e.to_string())
+    let content = fs::read_to_string(&config_file).map_err(|e| e.to_string())?;
+
+    // Try to parse the config
+    match serde_json::from_str(&content) {
+        Ok(config) => Ok(config),
+        Err(e) => {
+            eprintln!("[ERROR] Config file is corrupted: {}", e);
+            eprintln!("[ERROR] Attempting to recover...");
+
+            // Try to fix common corruption issues
+            let fixed_content = content.trim_end_matches("\"}").to_string() + "\n}";
+
+            match serde_json::from_str(&fixed_content) {
+                Ok(config) => {
+                    eprintln!("[RECOVERY] Successfully recovered config");
+                    // Save the fixed version
+                    let config_ref: AppConfig = config;
+                    if let Err(save_err) = save_config(&config_ref).await {
+                        eprintln!("[ERROR] Failed to save recovered config: {}", save_err);
+                    } else {
+                        eprintln!("[RECOVERY] Saved fixed config file");
+                    }
+                    Ok(config_ref)
+                }
+                Err(_) => {
+                    // Backup the corrupted file and return error
+                    let backup_path = config_file.with_extension("json.corrupted");
+                    let _ = fs::copy(&config_file, &backup_path);
+                    Err(format!("Config file is corrupted and cannot be recovered. Original saved to: {:?}. Error: {}", backup_path, e))
+                }
+            }
+        }
+    }
 }
 
 pub async fn save_config(config: &AppConfig) -> Result<(), String> {
     let config_file = get_config_file()?;
     let content = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
-    fs::write(config_file, content).map_err(|e| e.to_string())
+
+    // Validate JSON before writing to ensure it's properly formatted
+    let _: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Generated invalid JSON: {}", e))?;
+
+    // Write atomically using a temp file + rename to prevent corruption
+    let temp_file = config_file.with_extension("json.tmp");
+    fs::write(&temp_file, content).map_err(|e| e.to_string())?;
+    fs::rename(&temp_file, &config_file).map_err(|e| e.to_string())?;
+
+    Ok(())
 }
 
 #[command]
@@ -80,12 +121,6 @@ pub async fn get_or_create_user_profile(
             ProfileType::User
         };
 
-        let expected_prefix = if is_admin {
-            "admin".to_string()
-        } else {
-            format!("users/{}", user_id)
-        };
-
         // Update profile type if changed
         if config.profiles[profile_index].profile_type != expected_profile_type {
             config.profiles[profile_index].profile_type = expected_profile_type;
@@ -93,7 +128,13 @@ pub async fn get_or_create_user_profile(
             profile_updated = true;
         }
 
-        // Update prefix if changed
+        // Update prefix if changed (recalculate based on current admin status)
+        let expected_prefix = if is_admin {
+            format!("admins/{}", user_id)
+        } else {
+            format!("users/{}", user_id)
+        };
+
         if config.profiles[profile_index].prefix != expected_prefix {
             config.profiles[profile_index].prefix = expected_prefix;
             config.profiles[profile_index].updated_at = Utc::now();
@@ -130,10 +171,12 @@ pub async fn get_or_create_user_profile(
     profile.bucket = bucket;
 
     // Use Cognito user ID based folder structure (must match IAM policy)
-    // Structure: s3://bucket/users/{cognito-user-id}/
-    // The IAM policy uses ${cognito-identity.amazonaws.com:sub} which is the user_id
+    // Structure:
+    // - Regular users: s3://bucket/users/{cognito-user-id}/
+    // - Admin users: s3://bucket/admins/{cognito-user-id}/
+    // All admins can see all admin folders (enforced by IAM policy)
     profile.prefix = if is_admin {
-        "admin".to_string() // Admin backups go to admin/ folder but can view entire bucket
+        format!("admins/{}", user_id) // Each admin gets their own folder: admins/{cognito-sub}/
     } else {
         format!("users/{}", user_id) // Regular users get users/{cognito-sub}/
     };
@@ -373,7 +416,7 @@ pub async fn clear_backup_operations() -> Result<usize, String> {
 #[command]
 pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, String> {
     use std::fs;
-    use chrono::{Utc, TimeZone, Duration};
+    use chrono::{Utc, TimeZone};
     use regex::Regex;
 
     // Use the same log directory as the backup script: ~/.config/cloud-backup-app/logs/

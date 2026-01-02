@@ -1,8 +1,0 @@
-{
-  "cognito_user_pool_id": "us-east-1_XXXXX",
-  "cognito_app_client_id": "xxxxxxxxx",
-  "cognito_identity_pool_id": "us-east-1:xxxx-yyyy-zzzz",
-  "cognito_region": "us-east-1",
-  "bucket_name": "lavoz-backupapp-demo",
-  "lambda_api_url": "https://v2u7hnz489.execute-api.us-east-1.amazonaws.com/prod/create-user"
-}

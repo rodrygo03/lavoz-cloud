@@ -110,6 +110,7 @@ async fn create_simple_os_schedule(profile: &Profile, schedule: &Schedule) -> Re
     Ok(())
 }
 
+#[allow(dead_code)]
 async fn create_os_schedule(profile: &Profile, schedule: &Schedule) -> Result<(), String> {
     let config_dir = get_config_dir()?;
     let scripts_dir = config_dir.join("scripts");
@@ -137,13 +138,12 @@ async fn create_os_schedule(profile: &Profile, schedule: &Schedule) -> Result<()
 }
 
 async fn create_runner_script(profile: &Profile, scripts_dir: &PathBuf) -> Result<PathBuf, String> {
-    use crate::downloader::get_rclone_binary_path;
+    use crate::binary_resolver::get_rclone_binary_path;
 
     let script_name = format!("backup-{}.sh", profile.id);
     let script_path = scripts_dir.join(&script_name);
 
     let destination = profile.destination();
-    let sources = profile.sources.join(" ");
     let flags = profile.rclone_flags.join(" ");
 
     let operation = match profile.mode {
@@ -223,11 +223,24 @@ echo "$(date): Backup completed for profile {}" >> "$LOG_FILE"
 
 fn generate_backup_commands(sources: &[String], destination: &str, operation: &str, flags: &str) -> String {
     sources.iter()
-        .map(|source| format!(
-            r#"echo "$(date): Backing up {}" >> "$LOG_FILE"
+        .map(|source| {
+            // Extract folder name from source path to preserve folder structure
+            // E.g., /Users/john/Documents -> Documents
+            let source_folder_name = std::path::Path::new(source)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("unknown");
+
+            // Append source folder name to destination
+            // E.g., aws:bucket/users/john-id/Documents
+            let destination_with_folder = format!("{}/{}", destination, source_folder_name);
+
+            format!(
+                r#"echo "$(date): Backing up {} to {}" >> "$LOG_FILE"
 "$RCLONE_BIN" {} "{}" "{}" --config "$RCLONE_CONFIG" {} --log-file "$LOG_FILE" --log-level INFO"#,
-            source, operation, source, destination, flags
-        ))
+                source, destination_with_folder, operation, source, destination_with_folder, flags
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n\n")
 }
@@ -312,6 +325,7 @@ async fn create_simple_launchd_schedule(profile: &Profile, schedule: &Schedule, 
 }
 
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 async fn create_launchd_schedule(profile: &Profile, schedule: &Schedule, runner_script: &PathBuf) -> Result<(), String> {
     let plist_name = format!("com.cloudbackup.backup-{}.plist", profile.id);
     let plist_path = dirs::home_dir()

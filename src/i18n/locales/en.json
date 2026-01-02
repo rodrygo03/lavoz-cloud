@@ -345,41 +345,5 @@
     "creating": "Creating...",
     "createProfile": "Create Profile",
     "failedToCreateProfile": "Failed to create profile: "
-  },
-  "dependencies": {
-    "title": "Dependency Check",
-    "description": "Cloud Backup requires some external tools to function properly. Please install the missing dependencies below.",
-    "checkingDependencies": "Checking Dependencies",
-    "verifyingTools": "Verifying required tools are installed...",
-    "allReady": "All Dependencies Ready",
-    "allReadyDesc": "All required tools are installed and ready to use.",
-    "installed": "Installed",
-    "notInstalled": "Not Installed",
-    "install": "Install",
-    "installing": "Installing...",
-    "refresh": "Refresh",
-    "installationLogs": "Installation Logs",
-    "manualInstallation": "Manual Installation",
-    "copyCommand": "Copy command",
-    "recheckDependencies": "Recheck Dependencies",
-    "aboutDependencies": "About These Dependencies",
-    "awsCliDescription": "Required for configuring AWS credentials and managing S3 buckets and IAM users.",
-    "rcloneDescription": "The core backup tool that synchronizes files to cloud storage."
-  },
-  "download": {
-    "title": "Setting Up Dependencies",
-    "description": "Cloud Backup is installing required tools via Homebrew. This happens automatically on first launch.",
-    "complete": "Setup Complete!",
-    "completeDesc": "All dependencies have been installed successfully via Homebrew.",
-    "start": "Install Dependencies",
-    "downloading": "Installing...",
-    "brewDesc": "macOS package manager",
-    "rcloneDesc": "File synchronization tool",
-    "awsDesc": "AWS command-line interface",
-    "aboutDownload": "About This Setup",
-    "aboutDesc": "We're installing the latest versions of Homebrew, rclone and AWS CLI for seamless cloud backup functionality.",
-    "brewHelp": "The missing package manager for macOS - used to install and manage rclone and AWS CLI.",
-    "rcloneHelp": "Used for syncing your files to cloud storage with advanced features and reliability.",
-    "awsHelp": "Required for AWS S3 authentication and bucket management operations."
   }
 }

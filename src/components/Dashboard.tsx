@@ -2,16 +2,17 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
-import { 
-  Play, 
-  Eye, 
-  Clock, 
-  CheckCircle, 
+import {
+  Play,
+  Eye,
+  Clock,
+  CheckCircle,
   AlertTriangle,
   FileText,
   Calendar,
   Activity,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  Loader2
 } from 'lucide-react';
 import { Profile, BackupOperation, BackupPreview, Schedule } from '../types';
 
@@ -218,12 +219,16 @@ export default function Dashboard({ profile }: DashboardProps) {
           </div>
           <div className="card-content">
             <div className="action-buttons">
-              <button 
+              <button
                 className="btn btn-primary btn-large"
                 onClick={runBackup}
                 disabled={isRunning}
               >
-                <Play size={20} />
+                {isRunning ? (
+                  <Loader2 size={20} className="spinning" />
+                ) : (
+                  <Play size={20} />
+                )}
                 {isRunning ? t('dashboard.runningBackup') : t('dashboard.runBackupNow')}
               </button>
 

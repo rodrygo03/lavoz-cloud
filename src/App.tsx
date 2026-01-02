@@ -1,59 +1,20 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { useTranslation } from 'react-i18next';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import CloudBrowser from './components/CloudBrowser';
 import Settings from './components/Settings';
 import UserManagement from './components/UserManagement';
 import CognitoLogin from './components/CognitoLogin';
-import DependencyDownloader from './components/DependencyDownloader';
 import { Profile, UserSession } from './types';
 import './i18n';
 import "./App.css";
 
 function App() {
-  const { t } = useTranslation();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeProfile, setActiveProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState(true);
   const [userSession, setUserSession] = useState<UserSession | null>(null);
-  const [dependenciesReady, setDependenciesReady] = useState(false);
-  const [checkingDependencies, setCheckingDependencies] = useState(true);
-
-  useEffect(() => {
-    checkDependenciesAndLoadSession();
-  }, []);
-
-  const checkDependenciesAndLoadSession = async () => {
-    try {
-      console.log('Checking if dependencies need to be downloaded...');
-      // Check if dependencies need to be downloaded
-      const needsDownload = await invoke<boolean>('check_dependencies_needed');
-      console.log('Dependencies needed:', needsDownload);
-
-      if (!needsDownload) {
-        // Dependencies already installed, proceed normally
-        console.log('Dependencies already installed, proceeding...');
-        setDependenciesReady(true);
-        setCheckingDependencies(false);
-        setLoading(false);
-        // No session loading - user must login each time
-      } else {
-        // Need to download dependencies
-        console.log('Need to download dependencies, showing downloader...');
-        setCheckingDependencies(false);
-        setLoading(false);
-      }
-    } catch (error) {
-      console.error('Failed to check dependencies:', error);
-      setCheckingDependencies(false);
-      setLoading(false);
-      // Set dependencies as ready to proceed anyway
-      setDependenciesReady(true);
-    }
-  };
 
   const loadProfiles = async () => {
     try {
@@ -168,36 +129,6 @@ function App() {
       console.error('Failed to set active profile:', error);
     }
   };
-
-  if (loading) {
-    return (
-      <div className="loading-container">
-        <div className="loading-spinner"></div>
-        <p>{t('common.loading')}</p>
-      </div>
-    );
-  }
-
-  console.log('Render state:', { checkingDependencies, dependenciesReady, loading });
-
-  if (checkingDependencies) {
-    console.log('Showing loading screen');
-    return (
-      <div className="loading-container">
-        <div className="loading-spinner"></div>
-        <p>{t('common.loading')}</p>
-      </div>
-    );
-  }
-
-  if (!dependenciesReady) {
-    console.log('Showing dependency downloader');
-    return <DependencyDownloader onDownloadComplete={() => {
-      console.log('Download completed, setting dependencies ready');
-      setDependenciesReady(true);
-      // Don't load session - user will login
-    }} />;
-  }
 
   // Show Cognito login if no user session
   if (!userSession) {

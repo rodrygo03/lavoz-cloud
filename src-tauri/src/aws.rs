@@ -3,16 +3,10 @@ use tauri::command;
 use tokio::process::Command;
 
 use crate::models::*;
-use crate::downloader::get_aws_binary_path;
 
-/// Get AWS binary path using bundled or system AWS CLI
+/// Get AWS binary path - uses awscli package from system PATH
 fn get_aws_command() -> Result<String, String> {
-    // Use the sidecar function to get the correct path
-    if let Ok(aws_path) = get_aws_binary_path() {
-        return Ok(aws_path.to_string_lossy().to_string());
-    }
-    
-    // Fallback to aws in PATH
+    // Use aws from PATH (awscli package)
     Ok("aws".to_string())
 }
 
@@ -525,7 +519,7 @@ fn parse_setup_output(
 #[command]
 pub async fn generate_employee_rclone_config(
     employee: Employee,
-    bucket_name: String,
+    _bucket_name: String,
     region: String
 ) -> Result<String, String> {
     let config = format!(

@@ -53,3 +53,7 @@ Thumbs.db
 
 # Cleanup scripts (keep these for development)
 # cleanup-*.sh
+
+#
+notes.md 
+todo.txt

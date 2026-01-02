@@ -145,11 +145,20 @@ export default function CloudBrowser({ profile }: CloudBrowserProps) {
       }
 
       setIsRestoring(true);
-      
-      const filesToRestore = Array.from(selectedFiles);
+
+      // Build full paths from bucket root by combining currentPath with file paths
+      const filesToRestore = Array.from(selectedFiles).map(filePath => {
+        // If we're in a subdirectory, prepend currentPath to the file path
+        if (currentPath) {
+          return `${currentPath}/${filePath}`;
+        }
+        return filePath;
+      });
+
       console.log('Starting restore operation:', {
         fileCount: filesToRestore.length,
         target: localTarget,
+        currentPath,
         files: filesToRestore
       });
 

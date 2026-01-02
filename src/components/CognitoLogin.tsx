@@ -24,16 +24,31 @@ export default function CognitoLogin({ onLoginSuccess }: CognitoLoginProps) {
   const [requiredAttributes, setRequiredAttributes] = useState<any>(null);
 
   useEffect(() => {
-    // Initialize Cognito with config from localStorage
-    const configStr = localStorage.getItem('app_config');
-    if (configStr) {
-      const config = JSON.parse(configStr);
-      cognitoAuth.initializeCognito({
-        userPoolId: config.cognito_user_pool_id,
-        clientId: config.cognito_app_client_id,
-        region: config.cognito_region,
-      });
+    // Initialize Cognito with environment variables
+    const config = {
+      cognito_user_pool_id: import.meta.env.VITE_COGNITO_USER_POOL_ID,
+      cognito_app_client_id: import.meta.env.VITE_COGNITO_APP_CLIENT_ID,
+      cognito_identity_pool_id: import.meta.env.VITE_COGNITO_IDENTITY_POOL_ID,
+      cognito_region: import.meta.env.VITE_COGNITO_REGION,
+      bucket_name: import.meta.env.VITE_BUCKET_NAME,
+      lambda_api_url: import.meta.env.VITE_LAMBDA_API_URL,
+    };
+
+    // Validate that required environment variables are present
+    if (!config.cognito_user_pool_id || !config.cognito_app_client_id || !config.cognito_region) {
+      console.error("[CognitoLogin] Missing required environment variables. Please check your .env file.");
+      return;
     }
+
+    // Initialize Cognito with config from environment variables
+    cognitoAuth.initializeCognito({
+      userPoolId: config.cognito_user_pool_id,
+      clientId: config.cognito_app_client_id,
+      region: config.cognito_region,
+    });
+
+    // Store config in localStorage for access by other components
+    localStorage.setItem("app_config", JSON.stringify(config));
   }, []);
 
   const handleLogin = async () => {

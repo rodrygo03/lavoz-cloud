@@ -67,7 +67,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
       if (!scheduleData) {
         const defaultSchedule: Schedule = {
           enabled: false,
-          frequency: { Daily: null },
+          frequency: 'Daily',
           time: "02:00",
           last_run: undefined,
           next_run: undefined

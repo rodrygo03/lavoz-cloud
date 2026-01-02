@@ -6,21 +6,26 @@ use tokio::process::Command;
 use chrono::{DateTime, Utc};
 
 use crate::models::*;
-use crate::downloader::get_rclone_binary_path;
+use crate::binary_resolver::get_rclone_binary_path;
 
 /// Resolve rclone binary path - use bundled or system rclone
 fn resolve_rclone_binary(profile_rclone_bin: &str) -> Result<String, String> {
     // If profile wants bundled or system detection
     if profile_rclone_bin == "bundled" || profile_rclone_bin.contains("bundled") {
         // Use the sidecar function to get the correct path
-        if let Ok(bundled_path) = get_rclone_binary_path() {
-            return Ok(bundled_path.to_string_lossy().to_string());
+        match get_rclone_binary_path() {
+            Ok(bundled_path) => {
+                let path_str = bundled_path.to_string_lossy().to_string();
+                println!("[DEBUG] Resolved rclone binary to: {}", path_str);
+                return Ok(path_str);
+            }
+            Err(e) => {
+                eprintln!("[ERROR] Failed to find rclone binary: {}", e);
+                return Err(format!("Failed to find rclone binary: {}. Please ensure rclone is bundled with the app or installed via Homebrew.", e));
+            }
         }
-        
-        // If bundled path fails, fallback to rclone in PATH
-        return Ok("rclone".to_string());
     }
-    
+
     // Use the profile's specified binary path
     Ok(profile_rclone_bin.to_string())
 }
@@ -103,6 +108,9 @@ pub async fn validate_rclone_config(rclone_bin: String, config_path: String) -> 
 
 #[command]
 pub async fn list_cloud_files(profile: Profile, path: Option<String>, max_depth: Option<u32>) -> Result<Vec<CloudFile>, String> {
+    // Admin Access Model:
+    // - Admins can BROWSE/VIEW entire bucket (read access)
+    // - Admins can BACKUP only to their own prefix: admins/{user-id}/ (write access restricted)
     // For admin users, show all files in the bucket (not restricted to their prefix)
     // For regular users, restrict to their prefix
     let base_target = if matches!(profile.profile_type, crate::models::ProfileType::Admin) {
@@ -217,14 +225,28 @@ pub async fn backup_preview(profile: Profile) -> Result<BackupPreview, String> {
         BackupMode::Sync => "sync",
     };
 
+    // All users (including admins) backup to their own designated folder
+    // Admins backup to: admins/{user-id}/
+    // Regular users backup to: users/{user-id}/
     let destination = profile.destination();
     let mut all_changes = Vec::new();
 
     for source in &profile.sources {
+        // Extract the folder name from the source path to preserve folder structure
+        // E.g., /Users/john/Documents -> Documents
+        let source_folder_name = Path::new(source)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| format!("Invalid source path: {}", source))?;
+
+        // Append the source folder name to the destination to isolate each source
+        // E.g., aws:bucket/users/john-id/Documents
+        let destination_with_folder = format!("{}/{}", destination, source_folder_name);
+
         let mut args = vec![
             operation.to_string(),
             source.clone(),
-            destination.clone(),
+            destination_with_folder.clone(),
             "--dry-run".to_string(),
             "--stats=0".to_string(),
             "--config".to_string(),
@@ -321,12 +343,15 @@ fn extract_file_path_from_notice(line: &str) -> Option<String> {
 pub async fn backup_run(profile: Profile, dry_run: bool) -> Result<BackupOperation, String> {
     let operation_id = uuid::Uuid::new_v4().to_string();
     let started_at = Utc::now();
-    
+
     let operation = match profile.mode {
         BackupMode::Copy => "copy",
         BackupMode::Sync => "sync",
     };
 
+    // All users (including admins) backup to their own designated folder
+    // Admins backup to: admins/{user-id}/
+    // Regular users backup to: users/{user-id}/
     let destination = profile.destination();
     let mut combined_output = String::new();
     let mut total_files = 0u64;
@@ -335,7 +360,7 @@ pub async fn backup_run(profile: Profile, dry_run: bool) -> Result<BackupOperati
     for source in &profile.sources {
         // Resolve the actual rclone binary path
         let rclone_binary = resolve_rclone_binary(&profile.rclone_bin)?;
-        
+
         // Debug: Check if rclone binary exists
         if !Path::new(&rclone_binary).exists() && rclone_binary != "rclone" {
             return Err(format!("Rclone binary not found at path: {}", rclone_binary));
@@ -351,10 +376,21 @@ pub async fn backup_run(profile: Profile, dry_run: bool) -> Result<BackupOperati
             return Err(format!("Rclone config not found at path: {}", profile.rclone_conf));
         }
 
+        // Extract the folder name from the source path to preserve folder structure
+        // E.g., /Users/john/Documents -> Documents
+        let source_folder_name = Path::new(source)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| format!("Invalid source path: {}", source))?;
+
+        // Append the source folder name to the destination to isolate each source
+        // E.g., aws:bucket/users/john-id/Documents
+        let destination_with_folder = format!("{}/{}", destination, source_folder_name);
+
         let mut args = vec![
             operation.to_string(),
             source.clone(),
-            destination.clone(),
+            destination_with_folder.clone(),
             "--config".to_string(),
             profile.rclone_conf.clone(),
             "--progress".to_string(),
@@ -460,13 +496,28 @@ pub async fn backup_run(profile: Profile, dry_run: bool) -> Result<BackupOperati
 pub async fn restore_files(profile: Profile, remote_paths: Vec<String>, local_target: String) -> Result<BackupOperation, String> {
     let operation_id = uuid::Uuid::new_v4().to_string();
     let started_at = Utc::now();
-    let base_dest = profile.destination();
+
+    // For admin users, allow restoring from entire bucket (not restricted to their prefix)
+    // For regular users, restrict to their prefix
+    let base_dest = if matches!(profile.profile_type, crate::models::ProfileType::Admin) {
+        // Admin can restore from entire bucket
+        format!("{}:{}", profile.remote, profile.bucket)
+    } else {
+        // Regular users restore only from their prefix
+        profile.destination()
+    };
+
+    println!("[DEBUG] restore_files - Profile type: {:?}", profile.profile_type);
+    println!("[DEBUG] restore_files - base_dest: {}", base_dest);
+    println!("[DEBUG] restore_files - remote_paths: {:?}", remote_paths);
+
     let mut combined_output = String::new();
     let mut total_files = 0u64;
     let mut total_bytes = 0u64;
 
     for remote_path in remote_paths {
         let full_remote_path = format!("{}/{}", base_dest, remote_path.trim_start_matches('/'));
+        println!("[DEBUG] restore_files - Attempting to restore from: {}", full_remote_path);
         
         let args = vec![
             "copy".to_string(),
@@ -595,7 +646,7 @@ fn parse_rclone_stats(output: &str) -> Option<(u64, u64)> {
     let transferred_regex = Regex::new(r"Transferred:\s+([0-9.,]+\s*[KMGT]?i?B)\s*/\s*([0-9.,]+\s*[KMGT]?i?B)").ok()?;
 
     let mut bytes_transferred = 0u64;
-    let mut files_transferred = 0u64;
+    let files_transferred = 0u64;
 
     for line in output.lines() {
         println!("[DEBUG] Parsing line: {}", line);

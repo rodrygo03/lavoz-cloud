@@ -3,15 +3,14 @@ mod rclone;
 mod config;
 mod schedule;
 mod aws;
-mod downloader;
+mod binary_resolver;
 mod iam_storage;
 
 use rclone::*;
 use config::*;
 use schedule::*;
 use aws::*;
-// use dependencies::*; // Removed - using downloader
-use downloader::*;
+use binary_resolver::*;
 use iam_storage::*;
 
 #[tauri::command]
@@ -55,21 +54,14 @@ pub fn run() {
             setup_aws_infrastructure,
             generate_employee_rclone_config,
             get_employee_credentials,
-            // check_dependencies, // Removed - using downloader
-            // install_dependency, // Removed - using downloader
-            download_dependencies,
-            check_dependencies_needed,
             get_rclone_path,
-            get_aws_path,
             // IAM credential storage
             store_iam_credentials,
             get_stored_iam_credentials,
             delete_iam_credentials,
             create_scheduled_rclone_config
         ])
-        .setup(|app| {
-            let app_handle = app.handle().clone();
-            
+        .setup(|_app| {
             // Initialize configuration directory
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = initialize_config().await {

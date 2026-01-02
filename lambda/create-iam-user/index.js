@@ -96,27 +96,27 @@ exports.handler = async (event) => {
 
     let policy;
     if (isAdmin) {
-      // Admin users get access to admin/ folder
-      console.log('Creating admin policy for admin/ folder');
+      // Admin users get access to their own folder AND can see all other admin folders
+      console.log('Creating admin policy for admins/ folder with cross-admin visibility');
       policy = {
         Version: "2012-10-17",
         Statement: [
           {
-            Sid: "AllowListAdminFolder",
+            Sid: "AllowListAllAdminFolders",
             Effect: "Allow",
             Action: "s3:ListBucket",
             Resource: `arn:aws:s3:::${bucketName}`,
             Condition: {
               StringLike: {
                 "s3:prefix": [
-                  "admin/*",
-                  "admin"
+                  "admins/*",
+                  "admins"
                 ]
               }
             }
           },
           {
-            Sid: "AllowAccessAdminFolder",
+            Sid: "AllowFullAccessAllAdminFolders",
             Effect: "Allow",
             Action: [
               "s3:GetObject",
@@ -128,7 +128,7 @@ exports.handler = async (event) => {
               "s3:AbortMultipartUpload",
               "s3:ListMultipartUploadParts"
             ],
-            Resource: `arn:aws:s3:::${bucketName}/admin/*`
+            Resource: `arn:aws:s3:::${bucketName}/admins/*`
           }
         ]
       };
@@ -189,7 +189,7 @@ exports.handler = async (event) => {
     console.log(`Access key created: ${accessKey}`);
 
     // STEP 6: Return credentials with appropriate prefix
-    const s3Prefix = isAdmin ? 'admin' : `users/${cognito_user_id}`;
+    const s3Prefix = isAdmin ? `admins/${cognito_user_id}` : `users/${cognito_user_id}`;
     console.log('Returning credentials with s3_prefix:', s3Prefix);
 
     return {

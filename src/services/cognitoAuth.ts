@@ -74,7 +74,7 @@ export function signIn(email: string, password: string): Promise<UserSession> {
         reject(error);
       },
 
-      mfaRequired: (challengeName, challengeParameters) => {
+      mfaRequired: (_challengeName, _challengeParameters) => {
         // MFA is required
         const error: any = new Error('MFA_REQUIRED');
         error.code = 'SOFTWARE_TOKEN_MFA';
