@@ -10,6 +10,8 @@ pub fn get_rclone_binary_path() -> Result<PathBuf, String> {
         if let Some(exe_dir) = exe_path.parent() {
             // Try ../binaries/rclone-{arch}-{platform} pattern
             let arch = std::env::consts::ARCH;
+            let os = std::env::consts::OS;
+            println!("[DEBUG] Detected OS: {}, ARCH: {}", os, arch);
 
             #[cfg(target_os = "macos")]
             let dev_binary_name = format!("rclone-{}-apple-darwin", arch);
@@ -20,6 +22,8 @@ pub fn get_rclone_binary_path() -> Result<PathBuf, String> {
             #[cfg(target_os = "linux")]
             let dev_binary_name = format!("rclone-{}-unknown-linux-gnu", arch);
 
+            println!("[DEBUG] Looking for binary named: {}", dev_binary_name);
+
             // Look for binaries in project structure
             let possible_paths = vec![
                 exe_dir.join("../binaries").join(&dev_binary_name),
@@ -29,11 +33,15 @@ pub fn get_rclone_binary_path() -> Result<PathBuf, String> {
             ];
 
             for path in possible_paths {
+                println!("[DEBUG] Checking path: {:?}", path);
                 if let Ok(canonical) = path.canonicalize() {
+                    println!("[DEBUG] Canonicalized to: {:?}", canonical);
                     if canonical.exists() {
                         println!("[DEBUG] Found development rclone binary at: {:?}", canonical);
                         return Ok(canonical);
                     }
+                } else {
+                    println!("[DEBUG] Failed to canonicalize path: {:?}", path);
                 }
             }
         }
