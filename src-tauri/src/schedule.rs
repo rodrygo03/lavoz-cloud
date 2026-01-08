@@ -154,7 +154,15 @@ async fn create_runner_script(profile: &Profile, scripts_dir: &PathBuf) -> Resul
 
     // Get actual rclone binary path (not "bundled" string)
     let rclone_bin = get_rclone_binary_path()
-        .map(|p| p.to_string_lossy().to_string())
+        .map(|p| {
+            let path_str = p.to_string_lossy().to_string();
+            // Strip Windows extended-length path prefix \\?\ for script compatibility
+            if path_str.starts_with(r"\\?\") {
+                path_str.trim_start_matches(r"\\?\").to_string()
+            } else {
+                path_str
+            }
+        })
         .unwrap_or_else(|_| "rclone".to_string()); // Fallback to system rclone
 
     // Use scheduled rclone config (has permanent IAM credentials)
@@ -524,6 +532,8 @@ async fn create_windows_schedule(profile: &Profile, schedule: &Schedule, runner_
         "/TR", &task_run,
         "/ST", &start_time,
         "/SD", &start_date_str, // Add start date to control when task first runs
+        "/RU", "SYSTEM", // Run as SYSTEM account so it runs whether user is logged in or not
+        "/RL", "HIGHEST", // Run with highest privileges
         "/F", // Force overwrite if exists
     ];
 
