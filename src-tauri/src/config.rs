@@ -447,7 +447,16 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
     println!("[DEBUG] sync_scheduled_backup_logs: Found {} existing operations for profile {}",
         existing_operations.len(), profile_id);
 
-    let mut log_content = fs::read_to_string(&log_file).map_err(|e| e.to_string())?;
+    // Try to read log file, handle UTF-8 errors gracefully
+    let mut log_content = match fs::read_to_string(&log_file) {
+        Ok(content) => content,
+        Err(e) => {
+            println!("[DEBUG] sync_scheduled_backup_logs: Failed to read log file (possibly corrupted): {}", e);
+            println!("[DEBUG] sync_scheduled_backup_logs: Attempting to delete corrupted log file");
+            let _ = fs::remove_file(&log_file);
+            return Ok(0); // Skip corrupted log file
+        }
+    };
 
     // Remove UTF-8 BOM if present (PowerShell adds this on Windows)
     if log_content.starts_with('\u{FEFF}') {
