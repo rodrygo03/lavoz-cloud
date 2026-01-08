@@ -419,12 +419,21 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
     use chrono::{Utc, TimeZone};
     use regex::Regex;
 
-    // Use the same log directory as the backup script: ~/.config/cloud-backup-app/logs/
-    let home_dir = dirs::home_dir().ok_or("Could not determine home directory")?;
-    let logs_dir = home_dir.join(".config/cloud-backup-app/logs");
+    // Use the same log directory as the backup script
+    // Windows: %APPDATA%\cloud-backup-app\logs (via get_config_dir)
+    // macOS/Linux: ~/.config/cloud-backup-app/logs (hardcoded to match bash script)
+    let logs_dir = if cfg!(windows) {
+        get_config_dir()?.join("logs")
+    } else {
+        let home_dir = dirs::home_dir().ok_or("Could not determine home directory")?;
+        home_dir.join(".config/cloud-backup-app/logs")
+    };
     let log_file = logs_dir.join(format!("backup-{}.log", profile_id));
 
+    println!("[DEBUG] sync_scheduled_backup_logs: Looking for log file at: {:?}", log_file);
+
     if !log_file.exists() {
+        println!("[DEBUG] sync_scheduled_backup_logs: Log file does not exist");
         return Ok(0); // No log file, no operations to sync
     }
 
