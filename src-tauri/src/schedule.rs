@@ -501,12 +501,29 @@ async fn create_windows_schedule(profile: &Profile, schedule: &Schedule, runner_
         .map_err(|_| "Invalid time format")?;
     let start_time = format!("{:02}:{:02}", time.hour(), time.minute());
 
+    // Calculate start date - use today if the time hasn't passed yet
+    let now = Local::now();
+    let today = now.date_naive();
+    let today_at_scheduled_time = today.and_time(time);
+    let scheduled_datetime = Local.from_local_datetime(&today_at_scheduled_time)
+        .single()
+        .ok_or("Invalid local datetime")?;
+
+    // If the scheduled time is in the future today, start today; otherwise start tomorrow
+    let start_date = if scheduled_datetime > now {
+        today
+    } else {
+        today + Duration::days(1)
+    };
+    let start_date_str = start_date.format("%m/%d/%Y").to_string();
+
     // Build schtasks arguments
     let mut args = vec![
         "/Create",
         "/TN", &task_name,
         "/TR", &task_run,
         "/ST", &start_time,
+        "/SD", &start_date_str, // Add start date to control when task first runs
         "/F", // Force overwrite if exists
     ];
 
@@ -545,6 +562,9 @@ async fn create_windows_schedule(profile: &Profile, schedule: &Schedule, runner_
         .await;
 
     println!("[DEBUG] Creating Windows scheduled task: {}", task_name);
+    println!("[DEBUG] Current time: {}", now.format("%Y-%m-%d %H:%M:%S"));
+    println!("[DEBUG] Scheduled time: {}", scheduled_datetime.format("%Y-%m-%d %H:%M:%S"));
+    println!("[DEBUG] Start date: {}", start_date_str);
     println!("[DEBUG] Task arguments: {:?}", args);
 
     // Create the scheduled task
