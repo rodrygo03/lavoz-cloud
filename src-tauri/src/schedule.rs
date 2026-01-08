@@ -183,7 +183,7 @@ async fn create_runner_script(profile: &Profile, scripts_dir: &PathBuf) -> Resul
 # Generated: {}
 # Uses permanent IAM credentials
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 
 $RCLONE_BIN = "{}"
 $RCLONE_CONFIG = "{}"
@@ -208,10 +208,20 @@ Write-Log "Starting scheduled backup for profile {}"
 Write-Log "Using rclone: $RCLONE_BIN"
 Write-Log "Using config: $RCLONE_CONFIG"
 
-# Backup each source
-{}
+$BackupSuccess = $true
+try {{
+    # Backup each source
+    {}
+}} catch {{
+    Write-Log "ERROR: Backup failed with exception: $_"
+    $BackupSuccess = $false
+}}
 
-Write-Log "Backup completed for profile {}"
+if ($BackupSuccess) {{
+    Write-Log "Backup completed for profile {}"
+}} else {{
+    Write-Log "Backup completed with errors for profile {}"
+}}
 "#,
             profile.name,
             Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
@@ -223,6 +233,7 @@ Write-Log "Backup completed for profile {}"
             profile.id,
             profile.name,
             generate_backup_commands_windows(&profile.sources, &destination, operation, &flags),
+            profile.name,
             profile.name
         )
     } else {
@@ -325,7 +336,7 @@ fn generate_backup_commands_windows(sources: &[String], destination: &str, opera
 & $RCLONE_BIN {} "{}" "{}" --config $RCLONE_CONFIG {} --log-file $LOG_FILE --log-level INFO
 if ($LASTEXITCODE -ne 0) {{
     Write-Log "ERROR: Backup failed for {} with exit code $LASTEXITCODE"
-    exit $LASTEXITCODE
+    $BackupSuccess = $false
 }}"#,
                 source, destination_with_folder,
                 operation, source, destination_with_folder, flags,

@@ -447,7 +447,14 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
     println!("[DEBUG] sync_scheduled_backup_logs: Found {} existing operations for profile {}",
         existing_operations.len(), profile_id);
 
-    let log_content = fs::read_to_string(&log_file).map_err(|e| e.to_string())?;
+    let mut log_content = fs::read_to_string(&log_file).map_err(|e| e.to_string())?;
+
+    // Remove UTF-8 BOM if present (PowerShell adds this on Windows)
+    if log_content.starts_with('\u{FEFF}') {
+        log_content = log_content.trim_start_matches('\u{FEFF}').to_string();
+        println!("[DEBUG] sync_scheduled_backup_logs: Removed UTF-8 BOM from log file");
+    }
+
     let mut operations_created = 0;
 
     println!("[DEBUG] sync_scheduled_backup_logs: Log file has {} bytes", log_content.len());
@@ -457,7 +464,7 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
     // Note: \s+ handles variable whitespace (date command uses padding for single-digit days)
     // Timezone can be either an abbreviation (CDT, UTC) or offset (+00:00, -05:00)
     let start_regex = Regex::new(r"(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+(?:\w{3}|[+-]\d{2}:\d{2})\s+\d{4}): Starting (?:scheduled )?backup for profile (.+)").unwrap();
-    let complete_regex = Regex::new(r"(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+(?:\w{3}|[+-]\d{2}:\d{2})\s+\d{4}): Backup completed for profile (.+)").unwrap();
+    let complete_regex = Regex::new(r"(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+(?:\w{3}|[+-]\d{2}:\d{2})\s+\d{4}): Backup completed(?: with errors)? for profile (.+)").unwrap();
     let transferred_regex = Regex::new(r"Transferred:\s+(\d+) / (\d+), \d+%").unwrap();
     let stats_regex = Regex::new(r"Transferred:\s+([0-9.,]+\s*[KMGT]?i?B) / ([0-9.,]+\s*[KMGT]?i?B)").unwrap();
     
