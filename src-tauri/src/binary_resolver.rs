@@ -8,9 +8,21 @@ pub fn get_rclone_binary_path() -> Result<PathBuf, String> {
     if let Ok(exe_path) = std::env::current_exe() {
         // During development, look relative to the project root
         if let Some(exe_dir) = exe_path.parent() {
-            // Try ../binaries/rclone-{arch}-apple-darwin pattern
+            // Try ../binaries/rclone-{arch}-{platform} pattern
             let arch = std::env::consts::ARCH;
+            let os = std::env::consts::OS;
+            println!("[DEBUG] Detected OS: {}, ARCH: {}", os, arch);
+
+            #[cfg(target_os = "macos")]
             let dev_binary_name = format!("rclone-{}-apple-darwin", arch);
+
+            #[cfg(target_os = "windows")]
+            let dev_binary_name = format!("rclone-{}-pc-windows-msvc.exe", arch);
+
+            #[cfg(target_os = "linux")]
+            let dev_binary_name = format!("rclone-{}-unknown-linux-gnu", arch);
+
+            println!("[DEBUG] Looking for binary named: {}", dev_binary_name);
 
             // Look for binaries in project structure
             let possible_paths = vec![
@@ -21,19 +33,41 @@ pub fn get_rclone_binary_path() -> Result<PathBuf, String> {
             ];
 
             for path in possible_paths {
-                if let Ok(canonical) = path.canonicalize() {
-                    if canonical.exists() {
-                        return Ok(canonical);
+                println!("[DEBUG] Checking path: {:?}", path);
+
+                // First check if the path exists
+                if path.exists() {
+                    println!("[DEBUG] Path exists!");
+
+                    // Try to canonicalize for a clean absolute path
+                    match path.canonicalize() {
+                        Ok(canonical) => {
+                            println!("[DEBUG] Canonicalized to: {:?}", canonical);
+                            return Ok(canonical);
+                        }
+                        Err(e) => {
+                            // If canonicalize fails but file exists, use the path as-is
+                            println!("[DEBUG] Failed to canonicalize ({}), using path as-is: {:?}", e, path);
+                            return Ok(path);
+                        }
                     }
+                } else {
+                    println!("[DEBUG] Path does not exist: {:?}", path);
                 }
             }
         }
 
-        // When bundled in a macOS .app, Tauri v2 places external binaries in MacOS/ directory
-        // MyApp.app/Contents/MacOS/my-app (current_exe)
-        // MyApp.app/Contents/MacOS/rclone (bundled binary - same directory)
-        if let Some(macos_dir) = exe_path.parent() {
-            let bundled_path = macos_dir.join("rclone");
+        // When bundled, Tauri v2 places external binaries in the same directory as the executable
+        // macOS: MyApp.app/Contents/MacOS/rclone (same directory as my-app)
+        // Windows: path/to/app/rclone.exe (same directory as app.exe)
+        // Linux: path/to/app/rclone (same directory as app)
+        if let Some(bin_dir) = exe_path.parent() {
+            #[cfg(target_os = "windows")]
+            let bundled_path = bin_dir.join("rclone.exe");
+
+            #[cfg(not(target_os = "windows"))]
+            let bundled_path = bin_dir.join("rclone");
+
             println!("[DEBUG] Checking for bundled rclone at: {:?}", bundled_path);
             if bundled_path.exists() {
                 println!("[DEBUG] Found bundled rclone at: {:?}", bundled_path);
@@ -41,7 +75,8 @@ pub fn get_rclone_binary_path() -> Result<PathBuf, String> {
             }
         }
 
-        // Also check Resources/ directory for older Tauri versions
+        // Also check Resources/ directory for older Tauri versions (macOS only)
+        #[cfg(target_os = "macos")]
         if let Some(contents_dir) = exe_path.parent().and_then(|p| p.parent()) {
             let bundled_path = contents_dir.join("Resources").join("rclone");
             if bundled_path.exists() {
@@ -50,32 +85,59 @@ pub fn get_rclone_binary_path() -> Result<PathBuf, String> {
         }
     }
 
-    // Check common brew locations
-    let brew_paths = vec![
-        "/opt/homebrew/bin/rclone",    // Apple Silicon
-        "/usr/local/bin/rclone",       // Intel Mac
-    ];
+    #[cfg(target_os = "macos")]
+    {
+        // Check common brew locations (macOS only)
+        let brew_paths = vec![
+            "/opt/homebrew/bin/rclone",    // Apple Silicon
+            "/usr/local/bin/rclone",       // Intel Mac
+        ];
 
-    for path in brew_paths {
-        let path_buf = PathBuf::from(path);
-        if path_buf.exists() {
-            return Ok(path_buf);
+        for path in brew_paths {
+            let path_buf = PathBuf::from(path);
+            if path_buf.exists() {
+                return Ok(path_buf);
+            }
         }
     }
 
     // Fallback to system PATH
-    let output = std::process::Command::new("which")
-        .arg("rclone")
-        .output();
+    #[cfg(not(target_os = "windows"))]
+    {
+        let output = std::process::Command::new("which")
+            .arg("rclone")
+            .output();
 
-    if let Ok(output) = output {
-        if output.status.success() {
-            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            return Ok(PathBuf::from(path_str));
+        if let Ok(output) = output {
+            if output.status.success() {
+                let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                return Ok(PathBuf::from(path_str));
+            }
         }
     }
 
-    Err("rclone not found. Please ensure rclone is bundled with the app or install it via Homebrew.".to_string())
+    #[cfg(target_os = "windows")]
+    {
+        let output = std::process::Command::new("where")
+            .arg("rclone")
+            .output();
+
+        if let Ok(output) = output {
+            if output.status.success() {
+                let path_str = String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                if !path_str.is_empty() {
+                    return Ok(PathBuf::from(path_str));
+                }
+            }
+        }
+    }
+
+    Err("rclone not found. Please ensure rclone is bundled with the app or install it via Homebrew/Chocolatey.".to_string())
 }
 
 /// Command to get the rclone binary path

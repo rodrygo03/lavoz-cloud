@@ -419,12 +419,21 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
     use chrono::{Utc, TimeZone};
     use regex::Regex;
 
-    // Use the same log directory as the backup script: ~/.config/cloud-backup-app/logs/
-    let home_dir = dirs::home_dir().ok_or("Could not determine home directory")?;
-    let logs_dir = home_dir.join(".config/cloud-backup-app/logs");
+    // Use the same log directory as the backup script
+    // Windows: %APPDATA%\cloud-backup-app\logs (via get_config_dir)
+    // macOS/Linux: ~/.config/cloud-backup-app/logs (hardcoded to match bash script)
+    let logs_dir = if cfg!(windows) {
+        get_config_dir()?.join("logs")
+    } else {
+        let home_dir = dirs::home_dir().ok_or("Could not determine home directory")?;
+        home_dir.join(".config/cloud-backup-app/logs")
+    };
     let log_file = logs_dir.join(format!("backup-{}.log", profile_id));
 
+    println!("[DEBUG] sync_scheduled_backup_logs: Looking for log file at: {:?}", log_file);
+
     if !log_file.exists() {
+        println!("[DEBUG] sync_scheduled_backup_logs: Log file does not exist");
         return Ok(0); // No log file, no operations to sync
     }
 
@@ -438,7 +447,23 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
     println!("[DEBUG] sync_scheduled_backup_logs: Found {} existing operations for profile {}",
         existing_operations.len(), profile_id);
 
-    let log_content = fs::read_to_string(&log_file).map_err(|e| e.to_string())?;
+    // Try to read log file, handle UTF-8 errors gracefully
+    let mut log_content = match fs::read_to_string(&log_file) {
+        Ok(content) => content,
+        Err(e) => {
+            println!("[DEBUG] sync_scheduled_backup_logs: Failed to read log file (possibly corrupted): {}", e);
+            println!("[DEBUG] sync_scheduled_backup_logs: Attempting to delete corrupted log file");
+            let _ = fs::remove_file(&log_file);
+            return Ok(0); // Skip corrupted log file
+        }
+    };
+
+    // Remove UTF-8 BOM if present (PowerShell adds this on Windows)
+    if log_content.starts_with('\u{FEFF}') {
+        log_content = log_content.trim_start_matches('\u{FEFF}').to_string();
+        println!("[DEBUG] sync_scheduled_backup_logs: Removed UTF-8 BOM from log file");
+    }
+
     let mut operations_created = 0;
 
     println!("[DEBUG] sync_scheduled_backup_logs: Log file has {} bytes", log_content.len());
@@ -446,8 +471,10 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
     // Parse the log file for backup operations
     // Support both "Starting backup" and "Starting scheduled backup"
     // Note: \s+ handles variable whitespace (date command uses padding for single-digit days)
-    let start_regex = Regex::new(r"(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\w{3}\s+\d{4}): Starting (?:scheduled )?backup for profile (.+)").unwrap();
-    let complete_regex = Regex::new(r"(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\w{3}\s+\d{4}): Backup completed for profile (.+)").unwrap();
+    // Timezone can be either an abbreviation (CDT, UTC) or offset (+00:00, -05:00)
+    // PowerShell writes " :" (space before colon), bash writes ":" (no space)
+    let start_regex = Regex::new(r"(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+(?:\w{3}|[+-]\d{2}:\d{2})\s+\d{4})\s*:\s*Starting (?:scheduled )?backup for profile (.+)").unwrap();
+    let complete_regex = Regex::new(r"(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+(?:\w{3}|[+-]\d{2}:\d{2})\s+\d{4})\s*:\s*Backup completed(?: with errors)? for profile (.+)").unwrap();
     let transferred_regex = Regex::new(r"Transferred:\s+(\d+) / (\d+), \d+%").unwrap();
     let stats_regex = Regex::new(r"Transferred:\s+([0-9.,]+\s*[KMGT]?i?B) / ([0-9.,]+\s*[KMGT]?i?B)").unwrap();
     
@@ -456,19 +483,27 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
 
     println!("[DEBUG] sync_scheduled_backup_logs: Processing {} lines", lines.len());
 
-    for line in lines {
+    for (i, line) in lines.iter().enumerate() {
+        // Debug first 10 lines to see format
+        if i < 10 {
+            println!("[DEBUG] Line {}: {}", i, line);
+        }
+
         if let Some(caps) = start_regex.captures(line) {
             println!("[DEBUG] Matched start line: {}", line);
             let timestamp_str = &caps[1];
             let profile_name = &caps[2];
 
-            // Parse timestamp - format: "Wed Aug 20 00:22:05 CDT 2025"
-            // The script uses $(date) which outputs in local timezone
+            // Parse timestamp - format can be:
+            // macOS/Linux: "Wed Aug 20 00:22:05 CDT 2025" (timezone abbreviation)
+            // Windows: "Thu Jan 08 19:36:02 +00:00 2026" (timezone offset)
             let time_parts: Vec<&str> = timestamp_str.split_whitespace().collect();
+            println!("[DEBUG] Timestamp parts: {:?}", time_parts);
             if time_parts.len() >= 6 {
-                // Format: ["Wed", "Aug", "20", "00:22:05", "CDT", "2025"]
+                // Format: ["Wed", "Aug", "20", "00:22:05", "CDT/+00:00", "2025"]
                 // We want: "Aug 20 2025 00:22:05"
                 let date_time_str = format!("{} {} {} {}", time_parts[1], time_parts[2], time_parts[5], time_parts[3]);
+                println!("[DEBUG] Parsing datetime string: {}", date_time_str);
                 if let Ok(start_time) = chrono::NaiveDateTime::parse_from_str(&date_time_str, "%b %d %Y %H:%M:%S") {
                     // Convert from local time to UTC
                     use chrono::Local;
@@ -490,7 +525,11 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
                         error_message: None,
                         log_output: format!("Scheduled backup started for profile: {}", profile_name),
                     });
+                } else {
+                    println!("[DEBUG] Failed to parse datetime: {}", date_time_str);
                 }
+            } else {
+                println!("[DEBUG] Unexpected timestamp format, expected 6 parts but got {}", time_parts.len());
             }
         } else if let Some(_caps) = complete_regex.captures(line) {
             println!("[DEBUG] Matched completion line: {}", line);

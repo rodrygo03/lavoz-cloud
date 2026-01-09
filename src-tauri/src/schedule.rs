@@ -140,7 +140,8 @@ async fn create_os_schedule(profile: &Profile, schedule: &Schedule) -> Result<()
 async fn create_runner_script(profile: &Profile, scripts_dir: &PathBuf) -> Result<PathBuf, String> {
     use crate::binary_resolver::get_rclone_binary_path;
 
-    let script_name = format!("backup-{}.sh", profile.id);
+    let script_ext = if cfg!(windows) { "ps1" } else { "sh" };
+    let script_name = format!("backup-{}.{}", profile.id, script_ext);
     let script_path = scripts_dir.join(&script_name);
 
     let destination = profile.destination();
@@ -153,7 +154,15 @@ async fn create_runner_script(profile: &Profile, scripts_dir: &PathBuf) -> Resul
 
     // Get actual rclone binary path (not "bundled" string)
     let rclone_bin = get_rclone_binary_path()
-        .map(|p| p.to_string_lossy().to_string())
+        .map(|p| {
+            let path_str = p.to_string_lossy().to_string();
+            // Strip Windows extended-length path prefix \\?\ for script compatibility
+            if path_str.starts_with(r"\\?\") {
+                path_str.trim_start_matches(r"\\?\").to_string()
+            } else {
+                path_str
+            }
+        })
         .unwrap_or_else(|_| "rclone".to_string()); // Fallback to system rclone
 
     // Use scheduled rclone config (has permanent IAM credentials)
@@ -166,8 +175,76 @@ async fn create_runner_script(profile: &Profile, scripts_dir: &PathBuf) -> Resul
         profile.rclone_conf.clone()
     };
 
-    let script_content = format!(
-        r#"#!/bin/bash
+    let script_content = if cfg!(windows) {
+        // PowerShell script for Windows
+        // Use hardcoded log path instead of $env:APPDATA since task runs as SYSTEM
+        let log_dir = config_dir.join("logs");
+        let log_file_path = log_dir.join(format!("backup-{}.log", profile.id));
+
+        format!(
+            r#"# Cloud Backup App - Scheduled Backup Script
+# Profile: {}
+# Generated: {}
+# Uses permanent IAM credentials
+
+$ErrorActionPreference = "Continue"
+
+$RCLONE_BIN = "{}"
+$RCLONE_CONFIG = "{}"
+$DESTINATION = "{}"
+$OPERATION = "{}"
+$FLAGS = "{}"
+
+# Log file (hardcoded path since task runs as SYSTEM)
+$LOG_DIR = "{}"
+$LOG_FILE = "{}"
+if (!(Test-Path $LOG_DIR)) {{
+    New-Item -ItemType Directory -Path $LOG_DIR -Force | Out-Null
+}}
+
+function Write-Log {{
+    param($Message)
+    $Timestamp = Get-Date -Format "ddd MMM dd HH:mm:ss K yyyy"
+    "$Timestamp : $Message" | Out-File -FilePath $LOG_FILE -Append -Encoding UTF8
+}}
+
+Write-Log "Starting scheduled backup for profile {}"
+Write-Log "Using rclone: $RCLONE_BIN"
+Write-Log "Using config: $RCLONE_CONFIG"
+
+$BackupSuccess = $true
+try {{
+    # Backup each source
+    {}
+}} catch {{
+    Write-Log "ERROR: Backup failed with exception: $_"
+    $BackupSuccess = $false
+}}
+
+if ($BackupSuccess) {{
+    Write-Log "Backup completed for profile {}"
+}} else {{
+    Write-Log "Backup completed with errors for profile {}"
+}}
+"#,
+            profile.name,
+            Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
+            rclone_bin.replace("\\", "\\\\"),
+            rclone_config.replace("\\", "\\\\"),
+            destination,
+            operation,
+            flags,
+            log_dir.to_string_lossy().replace("\\", "\\\\"),
+            log_file_path.to_string_lossy().replace("\\", "\\\\"),
+            profile.name,
+            generate_backup_commands_windows(&profile.sources, &destination, operation, &flags),
+            profile.name,
+            profile.name
+        )
+    } else {
+        // Bash script for macOS/Linux
+        format!(
+            r#"#!/bin/bash
 set -euo pipefail
 
 # Cloud Backup App - Scheduled Backup Script
@@ -194,18 +271,19 @@ echo "$(date): Using config: $RCLONE_CONFIG" >> "$LOG_FILE"
 
 echo "$(date): Backup completed for profile {}" >> "$LOG_FILE"
 "#,
-        profile.name,
-        Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
-        rclone_bin,
-        rclone_config,
-        destination,
-        operation,
-        flags,
-        profile.id,
-        profile.name,
-        generate_backup_commands(&profile.sources, &destination, operation, &flags),
-        profile.name
-    );
+            profile.name,
+            Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
+            rclone_bin,
+            rclone_config,
+            destination,
+            operation,
+            flags,
+            profile.id,
+            profile.name,
+            generate_backup_commands(&profile.sources, &destination, operation, &flags),
+            profile.name
+        )
+    };
 
     fs::write(&script_path, script_content).map_err(|e| e.to_string())?;
 
@@ -243,6 +321,41 @@ fn generate_backup_commands(sources: &[String], destination: &str, operation: &s
         })
         .collect::<Vec<_>>()
         .join("\n\n")
+}
+
+#[cfg(target_os = "windows")]
+fn generate_backup_commands_windows(sources: &[String], destination: &str, operation: &str, flags: &str) -> String {
+    sources.iter()
+        .map(|source| {
+            // Extract folder name from source path to preserve folder structure
+            let source_folder_name = std::path::Path::new(source)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("unknown");
+
+            // Append source folder name to destination
+            let destination_with_folder = format!("{}/{}", destination, source_folder_name);
+
+            format!(
+                r#"Write-Log "Backing up {} to {}"
+& $RCLONE_BIN {} "{}" "{}" --config $RCLONE_CONFIG {} --log-file $LOG_FILE --log-level INFO
+if ($LASTEXITCODE -ne 0) {{
+    Write-Log "ERROR: Backup failed for {} with exit code $LASTEXITCODE"
+    $BackupSuccess = $false
+}}"#,
+                source, destination_with_folder,
+                operation, source, destination_with_folder, flags,
+                source
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+// Stub for non-Windows platforms to avoid compilation errors
+#[cfg(not(target_os = "windows"))]
+fn generate_backup_commands_windows(_sources: &[String], _destination: &str, _operation: &str, _flags: &str) -> String {
+    String::new()
 }
 
 #[cfg(target_os = "macos")]
@@ -399,10 +512,101 @@ async fn create_launchd_schedule(profile: &Profile, schedule: &Schedule, runner_
 }
 
 #[cfg(target_os = "windows")]
-async fn create_windows_schedule(_profile: &Profile, _schedule: &Schedule, _runner_script: &PathBuf) -> Result<(), String> {
-    // Windows Task Scheduler implementation would go here
-    // Using schtasks command or Windows API
-    Err("Windows scheduling not implemented yet".to_string())
+async fn create_windows_schedule(profile: &Profile, schedule: &Schedule, runner_script: &PathBuf) -> Result<(), String> {
+    let task_name = format!("CloudBackup\\backup-{}", profile.id);
+
+    // PowerShell execution command with proper flags
+    let task_run = format!(
+        "powershell.exe -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File \"{}\"",
+        runner_script.display()
+    );
+
+    let time = NaiveTime::parse_from_str(&schedule.time, "%H:%M")
+        .map_err(|_| "Invalid time format")?;
+    let start_time = format!("{:02}:{:02}", time.hour(), time.minute());
+
+    // Calculate start date - use today if the time hasn't passed yet
+    let now = Local::now();
+    let today = now.date_naive();
+    let today_at_scheduled_time = today.and_time(time);
+    let scheduled_datetime = Local.from_local_datetime(&today_at_scheduled_time)
+        .single()
+        .ok_or("Invalid local datetime")?;
+
+    // If the scheduled time is in the future today, start today; otherwise start tomorrow
+    let start_date = if scheduled_datetime > now {
+        today
+    } else {
+        today + Duration::days(1)
+    };
+    let start_date_str = start_date.format("%m/%d/%Y").to_string();
+
+    // Build schtasks arguments
+    let mut args = vec![
+        "/Create",
+        "/TN", &task_name,
+        "/TR", &task_run,
+        "/ST", &start_time,
+        "/SD", &start_date_str, // Add start date to control when task first runs
+        "/RU", "SYSTEM", // Run as SYSTEM account so it runs whether user is logged in or not
+        "/RL", "HIGHEST", // Run with highest privileges
+        "/F", // Force overwrite if exists
+    ];
+
+    // Add frequency-specific arguments
+    let (schedule_type, day_arg, day_value);
+    match schedule.frequency {
+        ScheduleFrequency::Daily => {
+            schedule_type = "DAILY";
+            args.extend(&["/SC", &schedule_type]);
+        },
+        ScheduleFrequency::Weekly(day) => {
+            schedule_type = "WEEKLY";
+            day_arg = match day {
+                0 => "SUN",
+                1 => "MON",
+                2 => "TUE",
+                3 => "WED",
+                4 => "THU",
+                5 => "FRI",
+                6 => "SAT",
+                _ => return Err("Invalid weekday".to_string()),
+            };
+            args.extend(&["/SC", &schedule_type, "/D", day_arg]);
+        },
+        ScheduleFrequency::Monthly(day) => {
+            schedule_type = "MONTHLY";
+            day_value = day.to_string();
+            args.extend(&["/SC", &schedule_type, "/D", &day_value]);
+        },
+    };
+
+    // Delete existing task first (ignore errors if it doesn't exist)
+    let _ = tokio::process::Command::new("schtasks")
+        .args(&["/Delete", "/TN", &task_name, "/F"])
+        .output()
+        .await;
+
+    println!("[DEBUG] Creating Windows scheduled task: {}", task_name);
+    println!("[DEBUG] Current time: {}", now.format("%Y-%m-%d %H:%M:%S"));
+    println!("[DEBUG] Scheduled time: {}", scheduled_datetime.format("%Y-%m-%d %H:%M:%S"));
+    println!("[DEBUG] Start date: {}", start_date_str);
+    println!("[DEBUG] Task arguments: {:?}", args);
+
+    // Create the scheduled task
+    let output = tokio::process::Command::new("schtasks")
+        .args(&args)
+        .output()
+        .await
+        .map_err(|e| format!("Failed to execute schtasks: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Failed to create scheduled task: {}", stderr));
+    }
+
+    println!("[DEBUG] Windows scheduled task created successfully");
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
@@ -522,9 +726,28 @@ async fn remove_os_schedule(profile: &Profile) -> Result<(), String> {
         }
     }
 
-    // Remove the runner script
+    #[cfg(target_os = "windows")]
+    {
+        let task_name = format!("CloudBackup\\backup-{}", profile.id);
+
+        // Delete the scheduled task
+        let output = tokio::process::Command::new("schtasks")
+            .args(&["/Delete", "/TN", &task_name, "/F"])
+            .output()
+            .await;
+
+        if let Ok(output) = output {
+            if !output.status.success() {
+                println!("[DEBUG] Failed to delete task (may not exist): {}",
+                    String::from_utf8_lossy(&output.stderr));
+            }
+        }
+    }
+
+    // Remove the runner script (cross-platform)
     let config_dir = get_config_dir()?;
-    let script_path = config_dir.join("scripts").join(format!("backup-{}.sh", profile.id));
+    let script_ext = if cfg!(windows) { "ps1" } else { "sh" };
+    let script_path = config_dir.join("scripts").join(format!("backup-{}.{}", profile.id, script_ext));
     if script_path.exists() {
         fs::remove_file(script_path).map_err(|e| e.to_string())?;
     }
