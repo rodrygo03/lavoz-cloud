@@ -177,6 +177,10 @@ async fn create_runner_script(profile: &Profile, scripts_dir: &PathBuf) -> Resul
 
     let script_content = if cfg!(windows) {
         // PowerShell script for Windows
+        // Use hardcoded log path instead of $env:APPDATA since task runs as SYSTEM
+        let log_dir = config_dir.join("logs");
+        let log_file_path = log_dir.join(format!("backup-{}.log", profile.id));
+
         format!(
             r#"# Cloud Backup App - Scheduled Backup Script
 # Profile: {}
@@ -191,9 +195,9 @@ $DESTINATION = "{}"
 $OPERATION = "{}"
 $FLAGS = "{}"
 
-# Log file
-$LOG_DIR = Join-Path $env:APPDATA "cloud-backup-app\logs"
-$LOG_FILE = Join-Path $LOG_DIR "backup-{}.log"
+# Log file (hardcoded path since task runs as SYSTEM)
+$LOG_DIR = "{}"
+$LOG_FILE = "{}"
 if (!(Test-Path $LOG_DIR)) {{
     New-Item -ItemType Directory -Path $LOG_DIR -Force | Out-Null
 }}
@@ -230,7 +234,8 @@ if ($BackupSuccess) {{
             destination,
             operation,
             flags,
-            profile.id,
+            log_dir.to_string_lossy().replace("\\", "\\\\"),
+            log_file_path.to_string_lossy().replace("\\", "\\\\"),
             profile.name,
             generate_backup_commands_windows(&profile.sources, &destination, operation, &flags),
             profile.name,
