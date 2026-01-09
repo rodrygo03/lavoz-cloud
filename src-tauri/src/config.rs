@@ -472,8 +472,9 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
     // Support both "Starting backup" and "Starting scheduled backup"
     // Note: \s+ handles variable whitespace (date command uses padding for single-digit days)
     // Timezone can be either an abbreviation (CDT, UTC) or offset (+00:00, -05:00)
-    let start_regex = Regex::new(r"(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+(?:\w{3}|[+-]\d{2}:\d{2})\s+\d{4}): Starting (?:scheduled )?backup for profile (.+)").unwrap();
-    let complete_regex = Regex::new(r"(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+(?:\w{3}|[+-]\d{2}:\d{2})\s+\d{4}): Backup completed(?: with errors)? for profile (.+)").unwrap();
+    // PowerShell writes " :" (space before colon), bash writes ":" (no space)
+    let start_regex = Regex::new(r"(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+(?:\w{3}|[+-]\d{2}:\d{2})\s+\d{4})\s*:\s*Starting (?:scheduled )?backup for profile (.+)").unwrap();
+    let complete_regex = Regex::new(r"(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+(?:\w{3}|[+-]\d{2}:\d{2})\s+\d{4})\s*:\s*Backup completed(?: with errors)? for profile (.+)").unwrap();
     let transferred_regex = Regex::new(r"Transferred:\s+(\d+) / (\d+), \d+%").unwrap();
     let stats_regex = Regex::new(r"Transferred:\s+([0-9.,]+\s*[KMGT]?i?B) / ([0-9.,]+\s*[KMGT]?i?B)").unwrap();
     
