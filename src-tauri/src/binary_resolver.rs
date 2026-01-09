@@ -34,14 +34,25 @@ pub fn get_rclone_binary_path() -> Result<PathBuf, String> {
 
             for path in possible_paths {
                 println!("[DEBUG] Checking path: {:?}", path);
-                if let Ok(canonical) = path.canonicalize() {
-                    println!("[DEBUG] Canonicalized to: {:?}", canonical);
-                    if canonical.exists() {
-                        println!("[DEBUG] Found development rclone binary at: {:?}", canonical);
-                        return Ok(canonical);
+
+                // First check if the path exists
+                if path.exists() {
+                    println!("[DEBUG] Path exists!");
+
+                    // Try to canonicalize for a clean absolute path
+                    match path.canonicalize() {
+                        Ok(canonical) => {
+                            println!("[DEBUG] Canonicalized to: {:?}", canonical);
+                            return Ok(canonical);
+                        }
+                        Err(e) => {
+                            // If canonicalize fails but file exists, use the path as-is
+                            println!("[DEBUG] Failed to canonicalize ({}), using path as-is: {:?}", e, path);
+                            return Ok(path);
+                        }
                     }
                 } else {
-                    println!("[DEBUG] Failed to canonicalize path: {:?}", path);
+                    println!("[DEBUG] Path does not exist: {:?}", path);
                 }
             }
         }
