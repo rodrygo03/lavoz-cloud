@@ -8,6 +8,21 @@ use chrono::{DateTime, Utc};
 use crate::models::*;
 use crate::binary_resolver::get_rclone_binary_path;
 
+/// Create a Command with Windows-specific flags to hide console window
+fn create_command(program: &str) -> Command {
+    let mut cmd = Command::new(program);
+
+    #[cfg(target_os = "windows")]
+    {
+        // CREATE_NO_WINDOW flag (0x08000000) hides the console window
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    cmd
+}
+
 /// Resolve rclone binary path - use bundled or system rclone
 fn resolve_rclone_binary(profile_rclone_bin: &str) -> Result<String, String> {
     // If profile wants bundled or system detection
@@ -37,7 +52,7 @@ pub async fn detect_rclone() -> Result<Vec<String>, String> {
     // First try bundled/system rclone
     if let Ok(rclone_path) = get_rclone_binary_path() {
         let path_str = rclone_path.to_string_lossy().to_string();
-        if let Ok(output) = Command::new(&rclone_path)
+        if let Ok(output) = create_command(&path_str)
             .arg("version")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -64,7 +79,7 @@ pub async fn detect_rclone() -> Result<Vec<String>, String> {
     ];
 
     for path in common_paths {
-        if let Ok(output) = Command::new(path)
+        if let Ok(output) = create_command(path)
             .arg("version")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -95,7 +110,7 @@ pub async fn validate_rclone_config(rclone_bin: String, config_path: String) -> 
         return Ok(false);
     }
 
-    let output = Command::new(&rclone_bin)
+    let output = create_command(&rclone_bin)
         .args(&["config", "show", "--config", &config_path])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -143,7 +158,7 @@ pub async fn list_cloud_files(profile: Profile, path: Option<String>, max_depth:
     }
 
     let rclone_binary = resolve_rclone_binary(&profile.rclone_bin)?;
-    let output = Command::new(&rclone_binary)
+    let output = create_command(&rclone_binary)
         .args(&args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -259,7 +274,7 @@ pub async fn backup_preview(profile: Profile) -> Result<BackupPreview, String> {
         }
 
         let rclone_binary = resolve_rclone_binary(&profile.rclone_bin)?;
-        let output = Command::new(&rclone_binary)
+        let output = create_command(&rclone_binary)
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -408,7 +423,7 @@ pub async fn backup_run(profile: Profile, dry_run: bool) -> Result<BackupOperati
             args.push(flag.clone());
         }
 
-        let output = Command::new(&rclone_binary)
+        let output = create_command(&rclone_binary)
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -534,7 +549,7 @@ pub async fn restore_files(profile: Profile, remote_paths: Vec<String>, local_ta
         ];
 
         let rclone_binary = resolve_rclone_binary(&profile.rclone_bin)?;
-        let output = Command::new(&rclone_binary)
+        let output = create_command(&rclone_binary)
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
