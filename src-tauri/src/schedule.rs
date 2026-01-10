@@ -296,6 +296,27 @@ echo "$(date): Backup completed for profile {}" >> "$LOG_FILE"
         fs::set_permissions(&script_path, perms).map_err(|e| e.to_string())?;
     }
 
+    // On Windows, create a VBScript wrapper to run PowerShell invisibly
+    #[cfg(windows)]
+    {
+        let vbs_path = scripts_dir.join(format!("backup-{}.vbs", profile.id));
+        let ps_script_path = script_path.to_string_lossy().replace("\\", "\\\\");
+
+        let vbs_content = format!(
+            r#"' VBScript wrapper to run PowerShell script invisibly
+' This prevents the terminal window from appearing during scheduled backups
+
+Set objShell = CreateObject("WScript.Shell")
+command = "powershell.exe -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File ""{}"
+objShell.Run command, 0, False
+"#,
+            ps_script_path
+        );
+
+        fs::write(&vbs_path, vbs_content).map_err(|e| e.to_string())?;
+        return Ok(vbs_path);
+    }
+
     Ok(script_path)
 }
 
@@ -515,9 +536,9 @@ async fn create_launchd_schedule(profile: &Profile, schedule: &Schedule, runner_
 async fn create_windows_schedule(profile: &Profile, schedule: &Schedule, runner_script: &PathBuf) -> Result<(), String> {
     let task_name = format!("CloudBackup\\backup-{}", profile.id);
 
-    // PowerShell execution command with proper flags
+    // Use wscript.exe to run VBScript invisibly (VBScript launches PowerShell hidden)
     let task_run = format!(
-        "powershell.exe -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File \"{}\"",
+        "wscript.exe \"{}\" //B //Nologo",
         runner_script.display()
     );
 
@@ -746,10 +767,28 @@ async fn remove_os_schedule(profile: &Profile) -> Result<(), String> {
 
     // Remove the runner script (cross-platform)
     let config_dir = get_config_dir()?;
-    let script_ext = if cfg!(windows) { "ps1" } else { "sh" };
-    let script_path = config_dir.join("scripts").join(format!("backup-{}.{}", profile.id, script_ext));
-    if script_path.exists() {
-        fs::remove_file(script_path).map_err(|e| e.to_string())?;
+    let scripts_dir = config_dir.join("scripts");
+
+    #[cfg(windows)]
+    {
+        // Remove both VBScript wrapper and PowerShell script
+        let vbs_path = scripts_dir.join(format!("backup-{}.vbs", profile.id));
+        if vbs_path.exists() {
+            let _ = fs::remove_file(vbs_path);
+        }
+        let ps_path = scripts_dir.join(format!("backup-{}.ps1", profile.id));
+        if ps_path.exists() {
+            let _ = fs::remove_file(ps_path);
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        let script_ext = "sh";
+        let script_path = scripts_dir.join(format!("backup-{}.{}", profile.id, script_ext));
+        if script_path.exists() {
+            fs::remove_file(script_path).map_err(|e| e.to_string())?;
+        }
     }
 
     Ok(())

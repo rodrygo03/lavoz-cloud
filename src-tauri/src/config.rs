@@ -1,9 +1,11 @@
 use std::fs;
 use std::path::PathBuf;
+use std::time::Duration;
 use chrono::Utc;
 use tauri::command;
 use std::process::Stdio;
 use tokio::process::Command;
+use fs2::FileExt;
 
 use crate::models::*;
 
@@ -77,6 +79,11 @@ pub async fn load_config() -> Result<AppConfig, String> {
 
 pub async fn save_config(config: &AppConfig) -> Result<(), String> {
     let config_file = get_config_file()?;
+    let lock_file = config_file.with_extension("json.lock");
+
+    // Acquire exclusive lock with retry (max 10 seconds)
+    let lock_handle = acquire_config_lock(&lock_file)?;
+
     let content = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
 
     // Validate JSON before writing to ensure it's properly formatted
@@ -85,10 +92,44 @@ pub async fn save_config(config: &AppConfig) -> Result<(), String> {
 
     // Write atomically using a temp file + rename to prevent corruption
     let temp_file = config_file.with_extension("json.tmp");
-    fs::write(&temp_file, content).map_err(|e| e.to_string())?;
+    fs::write(&temp_file, &content).map_err(|e| e.to_string())?;
     fs::rename(&temp_file, &config_file).map_err(|e| e.to_string())?;
 
+    // Release lock (by dropping the file handle)
+    drop(lock_handle);
+
     Ok(())
+}
+
+fn acquire_config_lock(lock_file: &PathBuf) -> Result<std::fs::File, String> {
+    // Try to acquire lock with retry (max 10 seconds, 100ms intervals)
+    let max_attempts = 100;
+    let retry_delay = Duration::from_millis(100);
+
+    for attempt in 0..max_attempts {
+        let lock_handle = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(lock_file)
+            .map_err(|e| format!("Failed to create lock file: {}", e))?;
+
+        match lock_handle.try_lock_exclusive() {
+            Ok(()) => {
+                if attempt > 0 {
+                    eprintln!("[CONFIG] Acquired lock after {} attempts", attempt + 1);
+                }
+                return Ok(lock_handle);
+            }
+            Err(_) => {
+                if attempt == 0 {
+                    eprintln!("[CONFIG] Config is locked, waiting...");
+                }
+                std::thread::sleep(retry_delay);
+            }
+        }
+    }
+
+    Err("Failed to acquire config lock after 10 seconds - another process may have it locked".to_string())
 }
 
 #[command]
