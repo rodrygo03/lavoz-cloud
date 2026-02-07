@@ -61,3 +61,8 @@ src-tauri/tauri.conf.json
 notes.md 
 todo.txt
 CLAUDE.md 
+
+# storybook
+*storybook.log
+storybook-static
+.storybook/
