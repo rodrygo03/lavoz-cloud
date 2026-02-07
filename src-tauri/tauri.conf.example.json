@@ -48,6 +48,7 @@
       "binaries/rclone"
     ],
     "macOS": {
+      "signingIdentity": "Developer ID Application: Your Name (TEAMID)",
       "dmg": {
         "appPosition": {
           "x": 180,
