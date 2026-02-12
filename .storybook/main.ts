@@ -26,6 +26,10 @@ const config: StorybookConfig = {
       '@tauri-apps/api/core': path.resolve(__dirname, '../src/__mocks__/tauri.ts'),
       '@tauri-apps/plugin-dialog': path.resolve(__dirname, '../src/__mocks__/tauriDialog.ts'),
     };
+    // Set base path for GitHub Pages
+    if (process.env.GITHUB_ACTIONS) {
+      config.base = '/lavoz-cloud/';
+    }
     return config;
   },
 };
