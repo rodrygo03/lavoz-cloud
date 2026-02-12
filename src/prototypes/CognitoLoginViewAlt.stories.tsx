@@ -1,8 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { fn } from 'storybook/test';
-import CognitoLoginView from './CognitoLoginView';
-
-// const noop = fn();
+import CognitoLoginViewAlt from './CognitoLoginViewAlt';
 
 const defaultArgs = {
   screen: 'login' as const,
@@ -28,14 +26,63 @@ const defaultArgs = {
   onNewPasswordSubmit: fn(),
   onBack: fn(),
   onForgotPassword: fn(),
-  title: 'Cloud Backup',
+  title: '',
   subtitle: 'Sign in to access your backups',
+  logoVariant: 'cloud',
+  logoSize: 344,
 };
 
-const meta = {
-  title: 'Components/CognitoLoginView',
-  component: CognitoLoginView,
-  args: defaultArgs,
+const LOGO_BASE_SIZE = 96;
+
+const resolveLogo = (logoVariant: string, logoSize: number) => {
+  const scale = logoSize / LOGO_BASE_SIZE;
+  if (logoVariant === 'none') {
+    return null;
+  }
+
+  if (logoVariant === 'cloud') {
+    return (
+      <img
+        src="/cloud.png"
+        alt="Cloud logo"
+        style={{
+          width: LOGO_BASE_SIZE,
+          height: LOGO_BASE_SIZE,
+          objectFit: 'contain',
+          transform: `scale(${scale})`,
+          transformOrigin: 'center',
+          display: 'block',
+          margin: '0 auto',
+        }}
+      />
+    );
+  }
+
+  if (logoVariant === 'cloud-2') {
+    return (
+      <img
+        src="/cloud-2.png"
+        alt="Cloud logo 2"
+        style={{
+          width: LOGO_BASE_SIZE,
+          height: LOGO_BASE_SIZE,
+          objectFit: 'contain',
+          transform: `scale(${scale})`,
+          transformOrigin: 'center',
+          display: 'block',
+          margin: '0 auto',
+        }}
+      />
+    );
+  }
+
+  return undefined;
+};
+
+const meta: Meta<any> = {
+  title: 'Prototypes/CognitoLogin/CognitoLoginViewAlt',
+  component: CognitoLoginViewAlt,
+  args: defaultArgs as any,
   argTypes: {
     screen: {
       control: 'inline-radio',
@@ -72,30 +119,32 @@ const meta = {
     newPassword: { control: 'text' },
     confirmPassword: { control: 'text' },
     phoneNumber: { control: 'text' },
-    logo: {
+    logoVariant: {
       control: 'select',
       options: ['default', 'cloud', 'cloud-2', 'none'],
-      mapping: {
-        default: undefined,
-        cloud: <img src="/cloud.png" alt="Cloud logo" style={{ width: 64, height: 64, objectFit: 'contain' }} />,
-        'cloud-2': <img src="/cloud-2.png" alt="Cloud logo 2" style={{ width: 64, height: 64, objectFit: 'contain' }} />,
-        none: null,
-      },
       description: 'Logo element (swap with your own in a prototype)',
     },
-  },
+    logoSize: {
+      control: { type: 'number', min: 48, max: 512, step: 8 },
+      description: 'Logo image size (px)',
+    },
+  } as any,
   parameters: {
     layout: 'fullscreen',
   },
-} satisfies Meta<typeof CognitoLoginView>;
+  render: ({ logoVariant, logoSize, ...args }: any) => {
+    const logo = resolveLogo(logoVariant, logoSize);
+    return <CognitoLoginViewAlt {...args} logo={logo} />;
+  },
+};
 
 export default meta;
-type Story = StoryObj<typeof meta>;
+type Story = StoryObj<any>;
 
 /** Switch between screens, toggle loading/error from Controls */
 export const Playground: Story = {
   args: {
-    logo: "none"
+    logoVariant: "cloud",
   }
 };
 
@@ -168,28 +217,23 @@ export const NewPasswordError: Story = {
   },
 };
 
-/** Custom branding — change title and subtitle */
-export const CustomBranding: Story = {
-  args: {
-    screen: 'login',
-    title: 'La Voz Backups',
-    subtitle: 'Secure cloud storage for your team',
-  },
-};
-
 /** All three screens side-by-side for visual comparison */
 export const AllScreens: Story = {
-  render: (args) => (
-    <div style={{ display: 'flex', gap: 0 }}>
-      <div style={{ flex: 1, borderRight: '1px solid #e0e0e0' }}>
-        <CognitoLoginView {...args} screen="login" email="jane@acme.com" />
+  render: (args: any) => {
+    const { logoVariant, logoSize, ...rest } = args;
+    const logo = resolveLogo(logoVariant, logoSize);
+    return (
+      <div style={{ display: 'flex', gap: 0 }}>
+        <div style={{ flex: 1, borderRight: '1px solid #e0e0e0' }}>
+          <CognitoLoginViewAlt {...rest} logo={logo} screen="login" email="jane@acme.com" />
+        </div>
+        {/* <div style={{ flex: 1, borderRight: '1px solid #e0e0e0' }}>
+          <CognitoLoginViewAlt {...rest} logo={logo} screen="mfa" mfaCode="123456" />
+        </div> */}
+        <div style={{ flex: 1 }}>
+          <CognitoLoginViewAlt {...rest} logo={logo} screen="newPassword" requirePhone={true} />
+        </div>
       </div>
-      {/* <div style={{ flex: 1, borderRight: '1px solid #e0e0e0' }}>
-        <CognitoLoginView {...args} screen="mfa" mfaCode="123456" />
-      </div> */}
-      <div style={{ flex: 1 }}>
-        <CognitoLoginView {...args} screen="newPassword" requirePhone={true} />
-      </div>
-    </div>
-  ),
+    );
+  },
 };

@@ -1,14 +1,13 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
-import { 
-  ArrowRight, 
-  ArrowLeft, 
+import {
   Key,
   RefreshCw,
   CheckCircle
 } from 'lucide-react';
 import { Profile, BackupMode } from '../types';
+import UserSetupView, { type StepData } from './UserSetupView';
 
 interface UserSetupProps {
   onSetupComplete: (profile: Profile) => void;
@@ -49,10 +48,10 @@ export default function UserSetup({ onSetupComplete, onCancel }: UserSetupProps)
         region: formData.region,
         profileName: `${formData.profile_name}-validation`
       };
-      
+
       console.log('Validating AWS credentials for user...');
       const result = await invoke<string>('configure_aws_credentials', payload);
-      
+
       console.log('User credentials validated successfully:', result);
       setCredentialsValidated(true);
       alert(t('userSetup.credentialsValidated') || '✅ Credentials validated successfully!');
@@ -104,7 +103,6 @@ export default function UserSetup({ onSetupComplete, onCancel }: UserSetupProps)
     }
   };
 
-
   const createProfile = async () => {
     if (!validateStep(currentStep)) return;
 
@@ -116,7 +114,7 @@ export default function UserSetup({ onSetupComplete, onCancel }: UserSetupProps)
         profileType: 'User'
       });
 
-      // Generate rclone config content  
+      // Generate rclone config content
       const rcloneConfig = `[aws]
 type = s3
 provider = AWS
@@ -129,7 +127,7 @@ acl = private
 
       // Create config file path
       const configPath = `user-${profile.id}-rclone.conf`;
-      
+
       try {
         // Save rclone config file
         await invoke('write_text_file', {
@@ -139,10 +137,9 @@ acl = private
         console.log('✅ Rclone config auto-generated and saved to:', configPath);
       } catch (writeError) {
         console.error('❌ Failed to write rclone config file:', writeError);
-        // Continue anyway - backend might handle config differently
       }
 
-      // Create AWS config structure (same as admin expects)
+      // Create AWS config structure
       const awsConfig = {
         aws_access_key_id: formData.access_key_id,
         aws_secret_access_key: formData.secret_access_key,
@@ -154,7 +151,7 @@ acl = private
           days_to_ia: 30,
           days_to_glacier: 365
         },
-        employees: [] // Empty for user profiles
+        employees: []
       };
 
       // Create user profile with proper AWS config and rclone configuration
@@ -165,21 +162,20 @@ acl = private
         remote: 'aws',
         sources: [],
         mode: 'Copy' as BackupMode,
-        rclone_bin: 'rclone', // Default binary
-        rclone_conf: configPath, // Generated config file
+        rclone_bin: 'rclone',
+        rclone_conf: configPath,
         rclone_flags: [
           '--checksum',
-          '--fast-list', 
+          '--fast-list',
           '--transfers=8',
           '--checkers=32'
         ],
-        // Add AWS config so backend auto-setup works
         aws_config: awsConfig
       };
 
       await invoke('update_profile', { profile: updatedProfile });
       await invoke('set_active_profile', { profileId: profile.id });
-      
+
       onSetupComplete(updatedProfile);
     } catch (error) {
       console.error('Failed to create profile:', error);
@@ -189,8 +185,7 @@ acl = private
     }
   };
 
-
-  const steps = [
+  const steps: StepData[] = [
     {
       title: t('userSetup.profileName'),
       description: t('userSetup.profileNameDescription'),
@@ -347,8 +342,7 @@ acl = private
     }
   ];
 
-  // Language toggle component
-  const LanguageToggle = () => (
+  const languageToggle = (
     <div style={{ display: 'flex', gap: '8px' }}>
       <button
         style={{
@@ -385,80 +379,17 @@ acl = private
     </div>
   );
 
-  const currentStepData = steps[currentStep];
-
   return (
-    <div className="user-setup">
-      <div className="setup-container">
-        <div className="setup-header">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-            <h1>{t('userSetup.title')}</h1>
-            <LanguageToggle />
-          </div>
-          <div className="step-indicator">
-            {t('adminSetup.stepOf', { current: currentStep + 1, total: steps.length })}
-          </div>
-        </div>
-
-        <div className="progress-bar">
-          <div 
-            className="progress-fill"
-            style={{ width: `${((currentStep + 1) / steps.length) * 100}%` }}
-          />
-        </div>
-
-        <div className="setup-content">
-          <div className="step-header">
-            <h2>{currentStepData.title}</h2>
-            <p>{currentStepData.description}</p>
-          </div>
-
-          <div className="step-content">
-            {currentStepData.content}
-          </div>
-        </div>
-
-        <div className="setup-actions">
-          <div className="actions-left">
-            {currentStep > 0 && (
-              <button 
-                className="btn btn-secondary"
-                onClick={prevStep}
-              >
-                <ArrowLeft size={16} />
-                {t('common.back')}
-              </button>
-            )}
-            
-            <button 
-              className="btn btn-secondary"
-              onClick={onCancel}
-            >
-              {t('common.cancel')}
-            </button>
-          </div>
-
-          <div className="actions-right">
-            {currentStep < steps.length - 1 ? (
-              <button 
-                className="btn btn-primary"
-                onClick={nextStep}
-              >
-                {t('common.next')}
-                <ArrowRight size={16} />
-              </button>
-            ) : (
-              <button 
-                className="btn btn-primary"
-                onClick={createProfile}
-                disabled={isCreating}
-              >
-                {isCreating ? t('userSetup.creatingProfile') : t('onboarding.createProfile')}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+    <UserSetupView
+      currentStep={currentStep}
+      steps={steps}
+      isCreating={isCreating}
+      languageToggle={languageToggle}
+      onNextStep={nextStep}
+      onPrevStep={prevStep}
+      onCancel={onCancel}
+      onCreateProfile={createProfile}
+      t={t}
+    />
   );
 }

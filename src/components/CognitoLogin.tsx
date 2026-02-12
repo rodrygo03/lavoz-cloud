@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { LogIn, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { UserSession } from '../types';
 import * as cognitoAuth from '../services/cognitoAuth';
+import CognitoLoginView, { type LoginScreen } from './CognitoLoginView';
 
 interface CognitoLoginProps {
   onLoginSuccess: (session: UserSession) => void;
@@ -10,21 +10,19 @@ interface CognitoLoginProps {
 
 export default function CognitoLogin({ onLoginSuccess }: CognitoLoginProps) {
   const { i18n } = useTranslation();
+  const [screen, setScreen] = useState<LoginScreen>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [needsMfa, setNeedsMfa] = useState(false);
-  const [mfaCode, setMfaCode] = useState('');
-  const [needsNewPassword, setNeedsNewPassword] = useState(false);
+  // const [mfaCode, setMfaCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [requiredAttributes, setRequiredAttributes] = useState<any>(null);
+  const [requirePhone, setRequirePhone] = useState(false);
 
   useEffect(() => {
-    // Initialize Cognito with environment variables
     const config = {
       cognito_user_pool_id: import.meta.env.VITE_COGNITO_USER_POOL_ID,
       cognito_app_client_id: import.meta.env.VITE_COGNITO_APP_CLIENT_ID,
@@ -34,20 +32,17 @@ export default function CognitoLogin({ onLoginSuccess }: CognitoLoginProps) {
       lambda_api_url: import.meta.env.VITE_LAMBDA_API_URL,
     };
 
-    // Validate that required environment variables are present
     if (!config.cognito_user_pool_id || !config.cognito_app_client_id || !config.cognito_region) {
       console.error("[CognitoLogin] Missing required environment variables. Please check your .env file.");
       return;
     }
 
-    // Initialize Cognito with config from environment variables
     cognitoAuth.initializeCognito({
       userPoolId: config.cognito_user_pool_id,
       clientId: config.cognito_app_client_id,
       region: config.cognito_region,
     });
 
-    // Store config in localStorage for access by other components
     localStorage.setItem("app_config", JSON.stringify(config));
   }, []);
 
@@ -61,25 +56,21 @@ export default function CognitoLogin({ onLoginSuccess }: CognitoLoginProps) {
     setError('');
 
     try {
-      // Real Cognito authentication
       const session = await cognitoAuth.signIn(email, password);
-
-      // No need to store session - user logs in fresh each time
       onLoginSuccess(session);
     } catch (e: any) {
       console.error('Login error:', e);
 
-      // Check if MFA is required
-      if (e?.code === 'SOFTWARE_TOKEN_MFA' || e?.message === 'MFA_REQUIRED') {
-        setNeedsMfa(true);
-        setIsLoggingIn(false);
-        return;
-      }
+      // if (e?.code === 'SOFTWARE_TOKEN_MFA' || e?.message === 'MFA_REQUIRED') {
+      //   setScreen('mfa');
+      //   setIsLoggingIn(false);
+      //   return;
+      // }
 
-      // Check if new password is required
       if (e?.code === 'NEW_PASSWORD_REQUIRED' || e?.message === 'NEW_PASSWORD_REQUIRED') {
-        setRequiredAttributes(e?.requiredAttributes || []);
-        setNeedsNewPassword(true);
+        const attrs = e?.requiredAttributes || [];
+        setRequirePhone(attrs.includes('phone_number'));
+        setScreen('newPassword');
         setIsLoggingIn(false);
         return;
       }
@@ -100,8 +91,7 @@ export default function CognitoLogin({ onLoginSuccess }: CognitoLoginProps) {
       return;
     }
 
-    // Check if phone number is required
-    if (requiredAttributes && requiredAttributes.includes('phone_number') && !phoneNumber) {
+    if (requirePhone && !phoneNumber) {
       setError('Phone number is required');
       return;
     }
@@ -111,13 +101,11 @@ export default function CognitoLogin({ onLoginSuccess }: CognitoLoginProps) {
 
     try {
       const attributes: { [key: string]: string } = {};
-
       if (phoneNumber) {
         attributes.phone_number = phoneNumber;
       }
 
       const session = await cognitoAuth.completeNewPasswordChallenge(newPassword, attributes);
-      // No need to store session - user logs in fresh each time
       onLoginSuccess(session);
     } catch (e: any) {
       setError(e?.message || 'Failed to set new password. Please try again.');
@@ -125,28 +113,33 @@ export default function CognitoLogin({ onLoginSuccess }: CognitoLoginProps) {
     }
   };
 
-  const handleMfaSubmit = async () => {
-    if (!mfaCode || mfaCode.length !== 6) {
-      setError('Please enter a valid 6-digit MFA code');
-      return;
-    }
+  // const handleMfaSubmit = async () => {
+  //   if (!mfaCode || mfaCode.length !== 6) {
+  //     setError('Please enter a valid 6-digit MFA code');
+  //     return;
+  //   }
+  //
+  //   setIsLoggingIn(true);
+  //   setError('');
+  //
+  //   try {
+  //     const session = await cognitoAuth.confirmMFA(mfaCode);
+  //     onLoginSuccess(session);
+  //   } catch (e: any) {
+  //     setError('Invalid MFA code. Please try again.');
+  //     setIsLoggingIn(false);
+  //   }
+  // };
 
-    setIsLoggingIn(true);
+  const handleBack = () => {
+    setScreen('login');
+    // setMfaCode('');
+    setNewPassword('');
+    setConfirmPassword('');
     setError('');
-
-    try {
-      // Real Cognito MFA confirmation
-      const session = await cognitoAuth.confirmMFA(mfaCode);
-
-      // No need to store session - user logs in fresh each time
-      onLoginSuccess(session);
-    } catch (e: any) {
-      setError('Invalid MFA code. Please try again.');
-      setIsLoggingIn(false);
-    }
   };
 
-  const LanguageToggle = () => (
+  const languageToggle = (
     <div style={{ display: 'flex', gap: '8px' }}>
       <button
         style={{
@@ -183,308 +176,34 @@ export default function CognitoLogin({ onLoginSuccess }: CognitoLoginProps) {
     </div>
   );
 
-  if (needsNewPassword) {
-    return (
-      <div className="setup-type-selection">
-        <div className="selection-container" style={{ maxWidth: '450px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: '2rem' }}>
-            <div></div>
-            <LanguageToggle />
-          </div>
-
-          <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-            <div style={{ fontSize: '48px', marginBottom: '1rem' }}>🔑</div>
-            <h1>Set New Password</h1>
-            <p>Please choose a new password for your account</p>
-          </div>
-
-          <div className="space-y-6">
-            {requiredAttributes && requiredAttributes.includes('phone_number') && (
-              <div className="form-group">
-                <label htmlFor="phone-number">Phone Number</label>
-                <input
-                  id="phone-number"
-                  type="tel"
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  placeholder="+1234567890"
-                  autoFocus
-                />
-                <div className="help-text" style={{ fontSize: '12px', marginTop: '4px', color: '#666' }}>
-                  Include country code (e.g., +1 for US)
-                </div>
-              </div>
-            )}
-
-            <div className="form-group">
-              <label htmlFor="new-password">New Password</label>
-              <input
-                id="new-password"
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Enter new password"
-                autoFocus={!requiredAttributes || !requiredAttributes.includes('phone_number')}
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="confirm-password">Confirm Password</label>
-              <input
-                id="confirm-password"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Confirm new password"
-                onKeyDown={(e) => e.key === 'Enter' && !isLoggingIn && handleNewPasswordSubmit()}
-              />
-            </div>
-
-            <div className="info-box" style={{ fontSize: '13px' }}>
-              <AlertCircle size={14} />
-              <div>
-                <p style={{ margin: 0 }}>Password must be at least 8 characters long</p>
-              </div>
-            </div>
-
-            {error && (
-              <div className="error-message" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <AlertCircle size={16} />
-                {error}
-              </div>
-            )}
-
-            <button
-              className="btn btn-primary btn-large"
-              onClick={handleNewPasswordSubmit}
-              disabled={isLoggingIn}
-              style={{ width: '100%' }}
-            >
-              {isLoggingIn ? (
-                <>
-                  <div className="loading-spinner" style={{ width: '16px', height: '16px', marginRight: '8px' }}></div>
-                  Setting Password...
-                </>
-              ) : (
-                'Set New Password'
-              )}
-            </button>
-
-            <button
-              className="btn btn-secondary"
-              onClick={() => {
-                setNeedsNewPassword(false);
-                setNewPassword('');
-                setConfirmPassword('');
-                setError('');
-              }}
-              style={{ width: '100%' }}
-            >
-              Back to Login
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (needsMfa) {
-    return (
-      <div className="setup-type-selection">
-        <div className="selection-container" style={{ maxWidth: '450px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: '2rem' }}>
-            <div></div>
-            <LanguageToggle />
-          </div>
-
-          <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-            <div style={{ fontSize: '48px', marginBottom: '1rem' }}>🔐</div>
-            <h1>Two-Factor Authentication</h1>
-            <p>Enter the 6-digit code from your authenticator app</p>
-          </div>
-
-          <div className="space-y-6">
-            <div className="form-group">
-              <label htmlFor="mfa-code">MFA Code</label>
-              <input
-                id="mfa-code"
-                type="text"
-                value={mfaCode}
-                onChange={(e) => {
-                  const value = e.target.value.replace(/\D/g, '').slice(0, 6);
-                  setMfaCode(value);
-                }}
-                placeholder="000000"
-                maxLength={6}
-                style={{
-                  fontSize: '24px',
-                  letterSpacing: '0.5em',
-                  textAlign: 'center',
-                  fontFamily: 'monospace'
-                }}
-                autoFocus
-              />
-            </div>
-
-            {error && (
-              <div className="error-message" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <AlertCircle size={16} />
-                {error}
-              </div>
-            )}
-
-            <button
-              className="btn btn-primary btn-large"
-              onClick={handleMfaSubmit}
-              disabled={isLoggingIn || mfaCode.length !== 6}
-              style={{ width: '100%' }}
-            >
-              {isLoggingIn ? (
-                <>
-                  <div className="loading-spinner" style={{ width: '16px', height: '16px', marginRight: '8px' }}></div>
-                  Verifying...
-                </>
-              ) : (
-                'Verify Code'
-              )}
-            </button>
-
-            <button
-              className="btn btn-secondary"
-              onClick={() => {
-                setNeedsMfa(false);
-                setMfaCode('');
-                setError('');
-              }}
-              style={{ width: '100%' }}
-            >
-              Back to Login
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="setup-type-selection">
-      <div className="selection-container" style={{ maxWidth: '450px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: '2rem' }}>
-          <div></div>
-          <LanguageToggle />
-        </div>
-
-        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <div style={{ fontSize: '48px', marginBottom: '1rem' }}>☁️</div>
-          <h1>Cloud Backup</h1>
-          <p>Sign in to access your backups</p>
-        </div>
-
-        <div className="space-y-6">
-          <div className="form-group">
-            <label htmlFor="email">Email</label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="your.email@company.com"
-              autoComplete="email"
-              disabled={isLoggingIn}
-              onKeyDown={(e) => e.key === 'Enter' && !isLoggingIn && handleLogin()}
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="password">Password</label>
-            <div style={{ position: 'relative' }}>
-              <input
-                id="password"
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                autoComplete="current-password"
-                disabled={isLoggingIn}
-                onKeyDown={(e) => e.key === 'Enter' && !isLoggingIn && handleLogin()}
-                style={{ paddingRight: '40px' }}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                style={{
-                  position: 'absolute',
-                  right: '8px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '4px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  color: '#666'
-                }}
-                tabIndex={-1}
-              >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
-          </div>
-
-          {error && (
-            <div className="error-message" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <AlertCircle size={16} />
-              {error}
-            </div>
-          )}
-
-          <button
-            className="btn btn-primary btn-large"
-            onClick={handleLogin}
-            disabled={isLoggingIn}
-            style={{ width: '100%' }}
-          >
-            {isLoggingIn ? (
-              <>
-                <div className="loading-spinner" style={{ width: '16px', height: '16px', marginRight: '8px' }}></div>
-                Signing In...
-              </>
-            ) : (
-              <>
-                <LogIn size={16} style={{ marginRight: '8px' }} />
-                Sign In
-              </>
-            )}
-          </button>
-
-          <div style={{ textAlign: 'center', marginTop: '1rem' }}>
-            <a
-              href="#"
-              onClick={(e) => {
-                e.preventDefault();
-                alert('Password reset will be handled through AWS Cognito. Contact your administrator for assistance.');
-              }}
-              style={{
-                color: '#007bff',
-                textDecoration: 'none',
-                fontSize: '14px'
-              }}
-            >
-              Forgot your password?
-            </a>
-          </div>
-        </div>
-
-        <div className="info-box" style={{ marginTop: '2rem', fontSize: '13px' }}>
-          <AlertCircle size={14} />
-          <div>
-            <p style={{ margin: 0 }}>
-              <strong>First time signing in?</strong> Use the email and temporary password provided by your administrator.
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
+    <CognitoLoginView
+      screen={screen}
+      email={email}
+      onEmailChange={setEmail}
+      password={password}
+      onPasswordChange={setPassword}
+      showPassword={showPassword}
+      onTogglePassword={() => setShowPassword(!showPassword)}
+      // mfaCode={mfaCode}
+      // onMfaCodeChange={setMfaCode}
+      newPassword={newPassword}
+      onNewPasswordChange={setNewPassword}
+      confirmPassword={confirmPassword}
+      onConfirmPasswordChange={setConfirmPassword}
+      phoneNumber={phoneNumber}
+      onPhoneNumberChange={setPhoneNumber}
+      requirePhone={requirePhone}
+      error={error}
+      isLoggingIn={isLoggingIn}
+      onLogin={handleLogin}
+      // onMfaSubmit={handleMfaSubmit}
+      onNewPasswordSubmit={handleNewPasswordSubmit}
+      onBack={handleBack}
+      onForgotPassword={() => {
+        alert('Password reset will be handled through AWS Cognito. Contact your administrator for assistance.');
+      }}
+      languageToggle={languageToggle}
+    />
   );
 }

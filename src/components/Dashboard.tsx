@@ -2,19 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
-import {
-  Play,
-  Eye,
-  Clock,
-  CheckCircle,
-  AlertTriangle,
-  FileText,
-  Calendar,
-  Activity,
-  Settings as SettingsIcon,
-  Loader2
-} from 'lucide-react';
 import { Profile, BackupOperation, BackupPreview, Schedule } from '../types';
+import DashboardView from './DashboardView';
 
 interface DashboardProps {
   profile: Profile | null;
@@ -152,10 +141,10 @@ export default function Dashboard({ profile }: DashboardProps) {
     if (!profile || !preview) return;
 
     const hasDeletes = preview.files_to_delete.length > 0;
-    
+
     if (hasDeletes) {
       const confirmed = confirm(
-        t('dashboard.syncDeleteConfirmation', { 
+        t('dashboard.syncDeleteConfirmation', {
           count: preview.files_to_delete.length,
           defaultValue: `This sync operation will delete ${preview.files_to_delete.length} files from the cloud. Are you sure you want to continue?`
         })
@@ -187,278 +176,24 @@ export default function Dashboard({ profile }: DashboardProps) {
     return `${hour12}:${minutes} ${period}`;
   };
 
-  if (!profile) {
-    return (
-      <div className="dashboard">
-        <div className="empty-state">
-          <Activity size={48} />
-          <h2>{t('dashboard.noProfileSelected')}</h2>
-          <p>{t('dashboard.selectProfile')}</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="dashboard">
-      <div className="dashboard-header">
-        <h1>{t('dashboard.title')}</h1>
-        <div className="profile-info">
-          <span className="profile-name">{profile.name}</span>
-          <span className="profile-destination">
-            {profile.remote}:{profile.bucket}/{profile.prefix}
-          </span>
-        </div>
-      </div>
-
-      <div className="dashboard-grid">
-        {/* Backup Actions */}
-        <div className="card">
-          <div className="card-header">
-            <h3>{t('dashboard.backupActions')}</h3>
-          </div>
-          <div className="card-content">
-            <div className="action-buttons">
-              <button
-                className="btn btn-primary btn-large"
-                onClick={runBackup}
-                disabled={isRunning}
-              >
-                {isRunning ? (
-                  <Loader2 size={20} className="spinning" />
-                ) : (
-                  <Play size={20} />
-                )}
-                {isRunning ? t('dashboard.runningBackup') : t('dashboard.runBackupNow')}
-              </button>
-
-              {profile.mode === 'Sync' && (
-                <button 
-                  className="btn btn-secondary"
-                  onClick={runPreview}
-                  disabled={isRunning}
-                >
-                  <Eye size={16} />
-                  {t('dashboard.previewChanges')}
-                </button>
-              )}
-            </div>
-
-            <div className="backup-info">
-              <div className="info-item">
-                <span className="label">{t('dashboard.mode')}:</span>
-                <span className={`value mode-${profile.mode.toLowerCase()}`}>
-                  {profile.mode}
-                </span>
-              </div>
-              <div className="info-item">
-                <span className="label">{t('dashboard.sources')}:</span>
-                <span className="value">{profile.sources.length} {t('dashboard.folders')}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Last Backup Status */}
-        <div className="card">
-          <div className="card-header">
-            <h3>{t('dashboard.lastBackup')}</h3>
-          </div>
-          <div className="card-content">
-            {lastBackup ? (
-              <div className="backup-status">
-                <div className="status-header">
-                  <div className={`status-indicator ${lastBackup.status.toLowerCase()}`}>
-                    {lastBackup.status === 'Completed' && <CheckCircle size={20} />}
-                    {lastBackup.status === 'Failed' && <AlertTriangle size={20} />}
-                    {lastBackup.status === 'Running' && <Clock size={20} />}
-                    <span>
-                      {lastBackup.status === 'Completed' && t('dashboard.statusCompleted')}
-                      {lastBackup.status === 'Failed' && t('dashboard.statusFailed')}
-                      {lastBackup.status === 'Running' && t('dashboard.statusRunning')}
-                    </span>
-                  </div>
-                  <span className="backup-date">
-                    {formatDate(lastBackup.started_at)}
-                  </span>
-                </div>
-
-                <div className="backup-stats">
-                  <div className="stat">
-                    <span className="stat-value">{lastBackup.files_transferred}</span>
-                    <span className="stat-label">{t('dashboard.files')}</span>
-                  </div>
-                  <div className="stat">
-                    <span className="stat-value">{formatBytes(lastBackup.bytes_transferred)}</span>
-                    <span className="stat-label">{t('dashboard.data')}</span>
-                  </div>
-                </div>
-
-                {lastBackup.error_message && (
-                  <div className="error-message">
-                    {lastBackup.error_message}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="empty-state-small">
-                <Clock size={24} />
-                <p>{t('dashboard.noBackupsYet')}</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Schedule Status */}
-        <div className="card">
-          <div className="card-header">
-            <h3>{t('dashboard.schedule')}</h3>
-          </div>
-          <div className="card-content">
-            {schedule && schedule.enabled ? (
-              <div className="schedule-info">
-                <div className="schedule-status enabled">
-                  <Calendar size={16} />
-                  <span>{t('dashboard.scheduled')}</span>
-                </div>
-                <div className="schedule-details">
-                  <div className="schedule-frequency">
-                    {/* Format schedule frequency based on type */}
-                    {schedule.frequency === 'Daily' && 'Daily'}
-                    {typeof schedule.frequency === 'object' && 'Daily' in schedule.frequency && 'Daily'}
-                    {typeof schedule.frequency === 'object' && 'Weekly' in schedule.frequency &&
-                      `Weekly (${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][schedule.frequency.Weekly]})`}
-                    {typeof schedule.frequency === 'object' && 'Monthly' in schedule.frequency &&
-                      `Monthly (${schedule.frequency.Monthly}th)`}
-                  </div>
-                  <div className="schedule-time">at {formatTime12Hour(schedule.time)}</div>
-                </div>
-                {schedule.next_run && (
-                  <div className="next-run">
-                    {t('dashboard.nextRun')}: {formatDate(schedule.next_run)}
-                  </div>
-                )}
-                <button 
-                  className="btn btn-secondary btn-small"
-                  onClick={() => navigate('/settings?tab=schedule')}
-                >
-                  <SettingsIcon size={14} />
-                  {t('dashboard.changeSchedule')}
-                </button>
-              </div>
-            ) : (
-              <div className="empty-state-small">
-                <Calendar size={24} />
-                <p>{t('dashboard.noScheduleConfigured')}</p>
-                <button 
-                  className="btn btn-secondary btn-small"
-                  onClick={() => navigate('/settings?tab=schedule')}
-                >
-                  <SettingsIcon size={14} />
-                  {t('dashboard.setSchedule')}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Recent Logs */}
-        <div className="card full-width">
-          <div className="card-header">
-            <h3>{t('dashboard.recentLogs')}</h3>
-            <button className="btn-icon">
-              <FileText size={16} />
-            </button>
-          </div>
-          <div className="card-content">
-            {logs || lastBackup?.log_output ? (
-              <pre className="logs-content">{logs || lastBackup?.log_output}</pre>
-            ) : (
-              <div className="empty-state-small">
-                <FileText size={24} />
-                <p>{t('dashboard.noLogsAvailable')}</p>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Preview Modal */}
-      {showPreview && preview && (
-        <div className="modal-overlay">
-          <div className="modal">
-            <div className="modal-header">
-              <h3>{t('dashboard.syncPreview', { defaultValue: 'Sync Preview' })}</h3>
-              <button 
-                className="modal-close"
-                onClick={() => setShowPreview(false)}
-              >
-                ×
-              </button>
-            </div>
-            <div className="modal-content">
-              <div className="preview-summary">
-                <div className="summary-item">
-                  <span className="count">{preview.files_to_copy.length}</span>
-                  <span className="label">{t('dashboard.filesToCopy', { defaultValue: 'Files to copy' })}</span>
-                </div>
-                <div className="summary-item">
-                  <span className="count">{preview.files_to_update.length}</span>
-                  <span className="label">{t('dashboard.filesToUpdate', { defaultValue: 'Files to update' })}</span>
-                </div>
-                <div className="summary-item danger">
-                  <span className="count">{preview.files_to_delete.length}</span>
-                  <span className="label">{t('dashboard.filesToDelete', { defaultValue: 'Files to delete' })}</span>
-                </div>
-              </div>
-
-              {preview.files_to_delete.length > 0 && (
-                <div className="warning-box">
-                  <AlertTriangle size={16} />
-                  <div>
-                    <strong>{t('dashboard.warning', { defaultValue: 'Warning' })}:</strong> {t('dashboard.deleteWarning', { count: preview.files_to_delete.length, defaultValue: `This operation will delete ${preview.files_to_delete.length} files from the cloud. This action cannot be undone.` })}
-                  </div>
-                </div>
-              )}
-
-              <div className="preview-details">
-                {preview.files_to_delete.length > 0 && (
-                  <div className="file-changes">
-                    <h4>{t('dashboard.filesToDeleteList', { defaultValue: 'Files to delete:' })}</h4>
-                    <div className="file-list">
-                      {preview.files_to_delete.slice(0, 10).map((file, index) => (
-                        <div key={index} className="file-item danger">
-                          {file.path}
-                        </div>
-                      ))}
-                      {preview.files_to_delete.length > 10 && (
-                        <div className="file-item">
-                          {t('dashboard.andMore', { count: preview.files_to_delete.length - 10, defaultValue: `... and ${preview.files_to_delete.length - 10} more` })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="modal-actions">
-              <button 
-                className="btn btn-secondary"
-                onClick={() => setShowPreview(false)}
-              >
-                {t('common.cancel')}
-              </button>
-              <button 
-                className="btn btn-danger"
-                onClick={confirmAndRunSync}
-                disabled={isRunning}
-              >
-                {isRunning ? t('dashboard.running', { defaultValue: 'Running...' }) : t('dashboard.confirmAndRunSync', { defaultValue: 'Confirm & Run Sync' })}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    <DashboardView
+      profile={profile}
+      lastBackup={lastBackup}
+      isRunning={isRunning}
+      preview={preview}
+      showPreview={showPreview}
+      schedule={schedule}
+      logs={logs}
+      onRunBackup={runBackup}
+      onRunPreview={runPreview}
+      onConfirmAndRunSync={confirmAndRunSync}
+      onClosePreview={() => setShowPreview(false)}
+      onNavigateToSchedule={() => navigate('/settings?tab=schedule')}
+      t={t}
+      formatBytes={formatBytes}
+      formatDate={formatDate}
+      formatTime12Hour={formatTime12Hour}
+    />
   );
 }

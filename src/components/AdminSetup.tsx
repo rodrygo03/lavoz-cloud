@@ -1,15 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
-import { 
-  ArrowRight, 
-  ArrowLeft, 
+import {
   CheckCircle,
   AlertCircle,
   Plus,
   Trash2
 } from 'lucide-react';
 import { Profile, AwsConfig, LifecycleConfig } from '../types';
+import AdminSetupView, { type StepData } from './AdminSetupView';
 
 interface AdminSetupProps {
   onSetupComplete: (profile: Profile) => void;
@@ -78,18 +77,12 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
       console.log('Calling configure_aws_credentials with region:', setupData.aws_region);
       console.log('Access key length:', setupData.aws_access_key_id.length);
       console.log('Secret key length:', setupData.aws_secret_access_key.length);
-      
-      // const result = await invoke<string>('configure_aws_credentials', {
-      //   access_key_id: setupData.aws_access_key_id,
-      //   secret_access_key: setupData.aws_secret_access_key,
-      //   region: setupData.aws_region,
-      //   profile_name: 'lavoz-cloud-app-test' // TODO: Pass in user name
-      // });
+
       const payload = {
         accessKeyId: setupData.aws_access_key_id,
         secretAccessKey: setupData.aws_secret_access_key,
         region: setupData.aws_region,
-        profileName: 'lavoz-cloud-app-test' // TODO: Pass in user name     
+        profileName: 'lavoz-cloud-app-test'
       };
       console.log(payload);
       const result = await invoke<string>('configure_aws_credentials', payload);
@@ -171,7 +164,7 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
     try {
       // Filter out empty employee names
       const employees = setupData.employees.filter(emp => emp.trim() !== '');
-      
+
       const awsConfig = await invoke<AwsConfig>('setup_aws_infrastructure', {
         bucketName: setupData.bucket_name,
         region: setupData.aws_region,
@@ -207,7 +200,7 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
     }
   };
 
-  const steps = [
+  const steps: StepData[] = [
     {
       title: t('adminSetup.awsCredentials'),
       description: t('adminSetup.awsCredentialsDescription'),
@@ -281,7 +274,7 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
                 </ul>
               </div>
 
-              <button 
+              <button
                 className="btn btn-primary"
                 onClick={configureAWS}
                 disabled={isConfiguring}
@@ -383,9 +376,9 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
                     value={setupData.lifecycle_config.days_to_glacier === 999999 ? 'never' : setupData.lifecycle_config.days_to_glacier.toString()}
                     onChange={(e) => setSetupData(prev => ({
                       ...prev,
-                      lifecycle_config: { 
-                        ...prev.lifecycle_config, 
-                        days_to_glacier: e.target.value === 'never' ? 999999 : parseInt(e.target.value) 
+                      lifecycle_config: {
+                        ...prev.lifecycle_config,
+                        days_to_glacier: e.target.value === 'never' ? 999999 : parseInt(e.target.value)
                       }
                     }))}
                   >
@@ -428,8 +421,8 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
               ))}
             </div>
 
-            <button 
-              type="button" 
+            <button
+              type="button"
               className="btn btn-secondary"
               onClick={addEmployee}
             >
@@ -455,15 +448,15 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
         <div className="space-y-6">
           <div className="review-section">
             <h3>{t('adminSetup.configurationSummary')}</h3>
-            
+
             <div className="review-item">
               <strong>Admin Username:</strong> {setupData.admin_username}
             </div>
-            
+
             <div className="review-item">
               <strong>S3 Bucket:</strong> {setupData.bucket_name} ({setupData.aws_region})
             </div>
-            
+
             <div className="review-item">
               <strong>{t('adminSetup.lifecyclePolicy')}:</strong> {setupData.lifecycle_config.enabled ? t('adminSetup.enabled') : t('adminSetup.disabled')}
               {setupData.lifecycle_config.enabled && (
@@ -473,7 +466,7 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
                 </div>
               )}
             </div>
-            
+
             <div className="review-item">
               <strong>Employees ({setupData.employees.filter(e => e.trim()).length}):</strong>
               <div className="sub-items">
@@ -487,12 +480,12 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
           <div className="warning-box">
             <AlertCircle size={16} />
             <div>
-              <strong>Important:</strong> This will create AWS resources that may incur costs. 
+              <strong>Important:</strong> This will create AWS resources that may incur costs.
               The setup will create IAM users, policies, and configure your S3 bucket.
             </div>
           </div>
 
-          <button 
+          <button
             className="btn btn-primary btn-large"
             onClick={setupInfrastructure}
             disabled={isConfiguring}
@@ -505,7 +498,7 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
   ];
 
   // Language toggle component
-  const LanguageToggle = () => (
+  const languageToggle = (
     <div style={{ display: 'flex', gap: '8px' }}>
       <button
         style={{
@@ -542,72 +535,15 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
     </div>
   );
 
-  const currentStepData = steps[currentStep];
-
   return (
-    <div className="admin-setup">
-      <div className="setup-container">
-        <div className="setup-header">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-            <h1>{t('adminSetup.title')}</h1>
-            <LanguageToggle />
-          </div>
-          <div className="step-indicator">
-            {t('adminSetup.stepOf', { current: currentStep + 1, total: steps.length })}
-          </div>
-        </div>
-
-        <div className="progress-bar">
-          <div 
-            className="progress-fill"
-            style={{ width: `${((currentStep + 1) / steps.length) * 100}%` }}
-          />
-        </div>
-
-        <div className="setup-content">
-          <div className="step-header">
-            <h2>{currentStepData.title}</h2>
-            <p>{currentStepData.description}</p>
-          </div>
-
-          <div className="step-content">
-            {currentStepData.content}
-          </div>
-        </div>
-
-        <div className="setup-actions">
-          <div className="actions-left">
-            {currentStep > 0 && (
-              <button 
-                className="btn btn-secondary"
-                onClick={prevStep}
-              >
-                <ArrowLeft size={16} />
-                {t('adminSetup.back')}
-              </button>
-            )}
-            
-            <button 
-              className="btn btn-secondary"
-              onClick={onCancel}
-            >
-              {t('adminSetup.cancel')}
-            </button>
-          </div>
-
-          <div className="actions-right">
-            {currentStep < steps.length - 1 && (
-              <button 
-                className="btn btn-primary"
-                onClick={nextStep}
-              >
-                {t('adminSetup.next')}
-                <ArrowRight size={16} />
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+    <AdminSetupView
+      currentStep={currentStep}
+      steps={steps}
+      languageToggle={languageToggle}
+      onNextStep={nextStep}
+      onPrevStep={prevStep}
+      onCancel={onCancel}
+      t={t}
+    />
   );
 }

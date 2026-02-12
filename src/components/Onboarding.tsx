@@ -1,17 +1,14 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
-// import { open } from '@tauri-apps/plugin-opener';
-import { 
-  ArrowRight, 
-  ArrowLeft, 
-  Folder, 
+import {
+  Folder,
   FolderOpen,
   CheckCircle,
   AlertCircle,
-  // Globe
 } from 'lucide-react';
 import { Profile, BackupMode } from '../types';
+import OnboardingView, { type StepData } from './OnboardingView';
 
 interface OnboardingProps {
   onProfileCreated: () => void;
@@ -151,10 +148,10 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
           '--checkers=32'
         ]
       };
-      
+
       await invoke('update_profile', { profile: updatedProfile });
       await invoke('set_active_profile', { profileId: profile.id });
-      
+
       onProfileCreated();
     } catch (error) {
       console.error('Failed to create profile:', error);
@@ -187,8 +184,6 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
 
   const openFolderDialog = async (callback: (path: string) => void) => {
     try {
-      // In a real implementation, we'd use tauri's dialog plugin
-      // For now, we'll use a simple prompt
       const path = prompt('Enter folder path:');
       if (path) {
         callback(path);
@@ -201,13 +196,10 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
   const handleLanguageChange = async (language: string) => {
     setFormData(prev => ({ ...prev, language }));
     await i18n.changeLanguage(language);
-    
-    // Store the language preference in localStorage for persistence
     localStorage.setItem('i18nextLng', language);
   };
 
-  // Simple language toggle component
-  const LanguageToggle = () => (
+  const languageToggle = (
     <div style={{ display: 'flex', gap: '8px' }}>
       <button
         style={{
@@ -238,7 +230,7 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
     </div>
   );
 
-  const steps = [
+  const steps: StepData[] = [
     {
       title: t('onboarding.profileName'),
       description: t('onboarding.profileNameDescription'),
@@ -293,7 +285,7 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
             <button
               type="button"
               className="btn-icon"
-              onClick={() => openFolderDialog((path) => 
+              onClick={() => openFolderDialog((path) =>
                 setFormData(prev => ({ ...prev, rclone_bin: path }))
               )}
             >
@@ -305,7 +297,7 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
           )}
           <div className="help-text">
             {t('onboarding.rcloneInstallHelp')}{' '}
-            <a 
+            <a
               href="https://rclone.org/install/"
               target="_blank"
               rel="noopener noreferrer"
@@ -335,7 +327,7 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
             <button
               type="button"
               className="btn-icon"
-              onClick={() => openFolderDialog((path) => 
+              onClick={() => openFolderDialog((path) =>
                 setFormData(prev => ({ ...prev, rclone_conf: path }))
               )}
             >
@@ -438,8 +430,8 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
               </div>
             ))}
           </div>
-          <button 
-            type="button" 
+          <button
+            type="button"
             className="btn btn-secondary"
             onClick={addSource}
           >
@@ -501,85 +493,17 @@ export default function Onboarding({ onProfileCreated }: OnboardingProps) {
     }
   ];
 
-  const currentStepData = steps[currentStep];
-
-
-  if (!currentStepData) {
-    return (
-      <div className="onboarding">
-        <div className="onboarding-container">
-          <div className="error">Step data not found for step {currentStep}</div>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="onboarding">
-      <div className="onboarding-container">
-        <div className="onboarding-header">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-            <h1>{t('onboarding.title')}</h1>
-            <LanguageToggle />
-          </div>
-          <div className="step-indicator">
-            {t('onboarding.stepOf', { current: currentStep + 1, total: steps.length })}
-          </div>
-        </div>
-
-        <div className="progress-bar">
-          <div 
-            className="progress-fill"
-            style={{ width: `${((currentStep + 1) / steps.length) * 100}%` }}
-          />
-        </div>
-
-        <div className="onboarding-content">
-          <div className="step-header">
-            <h2>{currentStepData.title}</h2>
-            <p>{currentStepData.description}</p>
-          </div>
-
-          <div className="step-content">
-            {currentStepData.content}
-          </div>
-        </div>
-
-        <div className="onboarding-actions">
-          <div className="actions-left">
-            {currentStep > 0 && (
-              <button 
-                className="btn btn-secondary"
-                onClick={prevStep}
-              >
-                <ArrowLeft size={16} />
-                {t('common.back')}
-              </button>
-            )}
-          </div>
-
-          <div className="actions-right">
-            {currentStep < steps.length - 1 ? (
-              <button 
-                className="btn btn-primary"
-                onClick={nextStep}
-                disabled={isValidating}
-              >
-                {isValidating ? t('onboarding.validating') : t('common.next')}
-                <ArrowRight size={16} />
-              </button>
-            ) : (
-              <button 
-                className="btn btn-primary"
-                onClick={handleCreateProfile}
-                disabled={creating}
-              >
-                {creating ? t('onboarding.creating') : t('onboarding.createProfile')}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+    <OnboardingView
+      currentStep={currentStep}
+      steps={steps}
+      isValidating={isValidating}
+      creating={creating}
+      languageToggle={languageToggle}
+      onNextStep={nextStep}
+      onPrevStep={prevStep}
+      onCreateProfile={handleCreateProfile}
+      t={t}
+    />
   );
 }
