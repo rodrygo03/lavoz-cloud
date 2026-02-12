@@ -40,7 +40,7 @@ const resolveLogo = (logoVariant: string, logoSize: number) => {
   if (logoVariant === 'cloud') {
     return (
       <img
-        src="/cloud.png"
+        src={`${import.meta.env.BASE_URL}cloud.png`}
         alt="Cloud logo"
         style={{
           width: LOGO_BASE_SIZE,
@@ -58,7 +58,7 @@ const resolveLogo = (logoVariant: string, logoSize: number) => {
   if (logoVariant === 'cloud-2') {
     return (
       <img
-        src="/cloud-2.png"
+        src={`${import.meta.env.BASE_URL}cloud-2.png`}
         alt="Cloud logo 2"
         style={{
           width: LOGO_BASE_SIZE,

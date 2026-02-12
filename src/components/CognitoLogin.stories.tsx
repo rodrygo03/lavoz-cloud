@@ -77,8 +77,8 @@ const meta = {
       options: ['default', 'cloud', 'cloud-2', 'none'],
       mapping: {
         default: undefined,
-        cloud: <img src="/cloud.png" alt="Cloud logo" style={{ width: 64, height: 64, objectFit: 'contain' }} />,
-        'cloud-2': <img src="/cloud-2.png" alt="Cloud logo 2" style={{ width: 64, height: 64, objectFit: 'contain' }} />,
+        cloud: <img src={`${import.meta.env.BASE_URL}cloud.png`} alt="Cloud logo" style={{ width: 64, height: 64, objectFit: 'contain' }} />,
+        'cloud-2': <img src={`${import.meta.env.BASE_URL}cloud-2.png`} alt="Cloud logo 2" style={{ width: 64, height: 64, objectFit: 'contain' }} />,
         none: null,
       },
       description: 'Logo element (swap with your own in a prototype)',
