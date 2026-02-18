@@ -54,7 +54,7 @@ export default function CloudBrowser({ profile }: CloudBrowserProps) {
     setLoading(true);
     try {
       const cloudFiles = await invoke<CloudFile[]>('list_cloud_files', {
-        profile,
+        profileId: profile.id,
         path: path || null,
         maxDepth: 1 // Always show only immediate children of current directory
       });
@@ -163,7 +163,7 @@ export default function CloudBrowser({ profile }: CloudBrowserProps) {
       });
 
       const operation = await invoke<BackupOperation>('restore_files', {
-        profile,
+        profileId: profile.id,
         remotePaths: filesToRestore,
         localTarget
       });

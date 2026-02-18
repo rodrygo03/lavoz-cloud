@@ -2,19 +2,69 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::command;
 use chrono::{Utc, Local, NaiveTime, NaiveDate, DateTime, Timelike, Datelike, Duration, TimeZone};
+use regex::Regex;
 
 use crate::models::*;
 use crate::config::{get_config_dir, load_config, save_config};
 
+// --- Input validation ---
+
+fn validate_source_path(path: &str) -> Result<(), String> {
+    if !std::path::Path::new(path).is_absolute() {
+        return Err(format!("Source path must be absolute: {}", path));
+    }
+    let dangerous_chars: &[char] = &['`', '$', ';', '&', '|', '<', '>', '\n', '\0'];
+    for &ch in dangerous_chars {
+        if path.contains(ch) {
+            let display = match ch {
+                '\n' => "\\n".to_string(),
+                '\0' => "\\0".to_string(),
+                other => other.to_string(),
+            };
+            return Err(format!(
+                "Source path contains forbidden character '{}': {}",
+                display, path
+            ));
+        }
+    }
+    if path.contains("$(") || path.contains("${") {
+        return Err(format!("Source path contains shell expansion syntax: {}", path));
+    }
+    Ok(())
+}
+
+fn validate_rclone_flag(flag: &str) -> Result<(), String> {
+    let re = Regex::new(r"^--[a-zA-Z][a-zA-Z0-9-]*(=[a-zA-Z0-9._:/-]*)?$").unwrap();
+    if !re.is_match(flag) {
+        return Err(format!("Invalid rclone flag: {}", flag));
+    }
+    Ok(())
+}
+
+fn validate_profile_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.len() > 255 {
+        return Err("Profile name must be 1-255 characters".to_string());
+    }
+    let dangerous_chars = ['`', '$', ';', '&', '|', '<', '>', '\n', '\0', '\'', '"', '\\'];
+    for ch in dangerous_chars {
+        if name.contains(ch) {
+            return Err(format!("Profile name contains forbidden character: {}", name));
+        }
+    }
+    Ok(())
+}
+
+/// Escape a string for safe use inside single quotes in bash.
+/// The technique: close the single-quote, insert an escaped single-quote, reopen single-quote.
+fn shell_escape(s: &str) -> String {
+    s.replace('\'', "'\\''")
+}
+
 #[command]
 pub async fn schedule_backup(profile_id: String, mut schedule: Schedule) -> Result<(), String> {
-    println!("[DEBUG] schedule_backup called with profile_id: {}", profile_id);
-    println!("[DEBUG] schedule: {:?}", schedule);
     let mut config = load_config().await?;
-    
+
     if let Some(profile) = config.profiles.iter_mut().find(|p| p.id == profile_id) {
-        // Use simple local time calculation for next_run (for display only)
-        // The actual scheduling uses the time field directly
         let time = NaiveTime::parse_from_str(&schedule.time, "%H:%M")
             .map_err(|_| "Invalid time format")?;
         let now_local = Local::now();
@@ -22,7 +72,7 @@ pub async fn schedule_backup(profile_id: String, mut schedule: Schedule) -> Resu
         let today_at_time = today_local.and_time(time);
         let today_local_dt = Local.from_local_datetime(&today_at_time).single()
             .ok_or("Invalid local time")?;
-        
+
         if today_local_dt > now_local {
             schedule.next_run = Some(today_local_dt.with_timezone(&Utc));
         } else {
@@ -32,20 +82,17 @@ pub async fn schedule_backup(profile_id: String, mut schedule: Schedule) -> Resu
                 .ok_or("Invalid local time")?;
             schedule.next_run = Some(tomorrow_local_dt.with_timezone(&Utc));
         }
-        
+
         profile.schedule = Some(schedule.clone());
         profile.updated_at = Utc::now();
-        
-        // Create the actual OS schedule using simplified approach
-        println!("[DEBUG] Creating OS schedule...");
+
         match create_simple_os_schedule(profile, &schedule).await {
-            Ok(_) => println!("[DEBUG] OS schedule created successfully"),
+            Ok(_) => {}
             Err(e) => {
-                println!("[DEBUG] Failed to create OS schedule: {}", e);
                 return Err(format!("Failed to create OS schedule: {}", e));
             }
         }
-        
+
         config.updated_at = Utc::now();
         save_config(&config).await?;
         Ok(())
@@ -57,14 +104,21 @@ pub async fn schedule_backup(profile_id: String, mut schedule: Schedule) -> Resu
 #[command]
 pub async fn unschedule_backup(profile_id: String) -> Result<(), String> {
     let mut config = load_config().await?;
-    
+
     if let Some(profile) = config.profiles.iter_mut().find(|p| p.id == profile_id) {
-        // Remove the OS schedule
         remove_os_schedule(profile).await?;
-        
+
         profile.schedule = None;
         profile.updated_at = Utc::now();
-        
+
+        // Check if any other profile still has an active schedule
+        let any_other_scheduled = config.profiles.iter()
+            .any(|p| p.id != profile_id && p.schedule.as_ref().map_or(false, |s| s.enabled));
+
+        if !any_other_scheduled {
+            let _ = crate::iam_storage::delete_scheduled_rclone_config_file();
+        }
+
         config.updated_at = Utc::now();
         save_config(&config).await?;
         Ok(())
@@ -76,7 +130,7 @@ pub async fn unschedule_backup(profile_id: String) -> Result<(), String> {
 #[command]
 pub async fn get_schedule_status(profile_id: String) -> Result<Option<Schedule>, String> {
     let config = load_config().await?;
-    
+
     if let Some(profile) = config.profiles.iter().find(|p| p.id == profile_id) {
         Ok(profile.schedule.clone())
     } else {
@@ -89,7 +143,6 @@ async fn create_simple_os_schedule(profile: &Profile, schedule: &Schedule) -> Re
     let scripts_dir = config_dir.join("scripts");
     fs::create_dir_all(&scripts_dir).map_err(|e| e.to_string())?;
 
-    // Create runner script
     let runner_script = create_runner_script(profile, &scripts_dir).await?;
 
     #[cfg(target_os = "macos")]
@@ -116,7 +169,6 @@ async fn create_os_schedule(profile: &Profile, schedule: &Schedule) -> Result<()
     let scripts_dir = config_dir.join("scripts");
     fs::create_dir_all(&scripts_dir).map_err(|e| e.to_string())?;
 
-    // Create runner script
     let runner_script = create_runner_script(profile, &scripts_dir).await?;
 
     #[cfg(target_os = "macos")]
@@ -140,44 +192,46 @@ async fn create_os_schedule(profile: &Profile, schedule: &Schedule) -> Result<()
 async fn create_runner_script(profile: &Profile, scripts_dir: &PathBuf) -> Result<PathBuf, String> {
     use crate::binary_resolver::get_rclone_binary_path;
 
+    // Validate all inputs before generating any script
+    validate_profile_name(&profile.name)?;
+    for source in &profile.sources {
+        validate_source_path(source)?;
+    }
+    for flag in &profile.rclone_flags {
+        validate_rclone_flag(flag)?;
+    }
+
     let script_ext = if cfg!(windows) { "ps1" } else { "sh" };
     let script_name = format!("backup-{}.{}", profile.id, script_ext);
     let script_path = scripts_dir.join(&script_name);
 
     let destination = profile.destination();
-    let flags = profile.rclone_flags.join(" ");
 
     let operation = match profile.mode {
         BackupMode::Copy => "copy",
         BackupMode::Sync => "sync",
     };
 
-    // Get actual rclone binary path (not "bundled" string)
     let rclone_bin = get_rclone_binary_path()
         .map(|p| {
             let path_str = p.to_string_lossy().to_string();
-            // Strip Windows extended-length path prefix \\?\ for script compatibility
             if path_str.starts_with(r"\\?\") {
                 path_str.trim_start_matches(r"\\?\").to_string()
             } else {
                 path_str
             }
         })
-        .unwrap_or_else(|_| "rclone".to_string()); // Fallback to system rclone
+        .unwrap_or_else(|_| "rclone".to_string());
 
-    // Use scheduled rclone config (has permanent IAM credentials)
     let config_dir = get_config_dir()?;
     let scheduled_config = config_dir.join("rclone-scheduled.conf");
     let rclone_config = if scheduled_config.exists() {
         scheduled_config.to_string_lossy().to_string()
     } else {
-        // Fallback to regular config (temporary credentials - will fail)
         profile.rclone_conf.clone()
     };
 
     let script_content = if cfg!(windows) {
-        // PowerShell script for Windows
-        // Use hardcoded log path instead of $env:APPDATA since task runs as SYSTEM
         let log_dir = config_dir.join("logs");
         let log_file_path = log_dir.join(format!("backup-{}.log", profile.id));
 
@@ -193,7 +247,6 @@ $RCLONE_BIN = "{}"
 $RCLONE_CONFIG = "{}"
 $DESTINATION = "{}"
 $OPERATION = "{}"
-$FLAGS = "{}"
 
 # Log file (hardcoded path since task runs as SYSTEM)
 $LOG_DIR = "{}"
@@ -233,61 +286,57 @@ if ($BackupSuccess) {{
             rclone_config.replace("\\", "\\\\"),
             destination,
             operation,
-            flags,
             log_dir.to_string_lossy().replace("\\", "\\\\"),
             log_file_path.to_string_lossy().replace("\\", "\\\\"),
             profile.name,
-            generate_backup_commands_windows(&profile.sources, &destination, operation, &flags),
+            generate_backup_commands_windows(&profile.sources, &destination, operation, &profile.rclone_flags),
             profile.name,
             profile.name
         )
     } else {
-        // Bash script for macOS/Linux
+        // Bash script for macOS/Linux — use single-quoted escaping for all user-controlled values
+        let escaped_rclone_bin = shell_escape(&rclone_bin);
+        let escaped_rclone_config = shell_escape(&rclone_config);
+        let escaped_destination = shell_escape(&destination);
+
         format!(
             r#"#!/bin/bash
 set -euo pipefail
 
 # Cloud Backup App - Scheduled Backup Script
-# Profile: {}
-# Generated: {}
+# Profile: {profile_name}
+# Generated: {timestamp}
 # Uses permanent IAM credentials (not temporary Cognito credentials)
 
-RCLONE_BIN="{}"
-RCLONE_CONFIG="{}"
-DESTINATION="{}"
-OPERATION="{}"
-FLAGS="{}"
+RCLONE_BIN='{escaped_rclone_bin}'
+RCLONE_CONFIG='{escaped_rclone_config}'
+DESTINATION='{escaped_destination}'
+OPERATION='{operation}'
 
 # Log file
-LOG_FILE="$HOME/.config/cloud-backup-app/logs/backup-{}.log"
+LOG_FILE="$HOME/.config/cloud-backup-app/logs/backup-{profile_id}.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 
-echo "$(date): Starting scheduled backup for profile {}" >> "$LOG_FILE"
-echo "$(date): Using rclone: $RCLONE_BIN" >> "$LOG_FILE"
-echo "$(date): Using config: $RCLONE_CONFIG" >> "$LOG_FILE"
+echo "$(date): Starting scheduled backup for profile {profile_name}" >> "$LOG_FILE"
 
 # Backup each source
-{}
+{backup_commands}
 
-echo "$(date): Backup completed for profile {}" >> "$LOG_FILE"
+echo "$(date): Backup completed for profile {profile_name}" >> "$LOG_FILE"
 "#,
-            profile.name,
-            Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
-            rclone_bin,
-            rclone_config,
-            destination,
-            operation,
-            flags,
-            profile.id,
-            profile.name,
-            generate_backup_commands(&profile.sources, &destination, operation, &flags),
-            profile.name
+            profile_name = profile.name,
+            timestamp = Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
+            escaped_rclone_bin = escaped_rclone_bin,
+            escaped_rclone_config = escaped_rclone_config,
+            escaped_destination = escaped_destination,
+            operation = operation,
+            profile_id = profile.id,
+            backup_commands = generate_backup_commands(&profile.sources, &destination, operation, &profile.rclone_flags),
         )
     };
 
     fs::write(&script_path, script_content).map_err(|e| e.to_string())?;
 
-    // Make script executable
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -320,24 +369,31 @@ objShell.Run command, 0, False
     Ok(script_path)
 }
 
-fn generate_backup_commands(sources: &[String], destination: &str, operation: &str, flags: &str) -> String {
+fn generate_backup_commands(sources: &[String], destination: &str, operation: &str, flags: &[String]) -> String {
     sources.iter()
         .map(|source| {
-            // Extract folder name from source path to preserve folder structure
-            // E.g., /Users/john/Documents -> Documents
             let source_folder_name = std::path::Path::new(source)
                 .file_name()
                 .and_then(|name| name.to_str())
                 .unwrap_or("unknown");
 
-            // Append source folder name to destination
-            // E.g., aws:bucket/users/john-id/Documents
             let destination_with_folder = format!("{}/{}", destination, source_folder_name);
 
+            // Build flags directly into the command line, each individually quoted
+            let flags_str = flags.iter()
+                .map(|f| format!("'{}'", shell_escape(f)))
+                .collect::<Vec<_>>()
+                .join(" ");
+
             format!(
-                r#"echo "$(date): Backing up {} to {}" >> "$LOG_FILE"
-"$RCLONE_BIN" {} "{}" "{}" --config "$RCLONE_CONFIG" {} --log-file "$LOG_FILE" --log-level INFO"#,
-                source, destination_with_folder, operation, source, destination_with_folder, flags
+                r#"echo "$(date): Backing up {source} to {dest}" >> "$LOG_FILE"
+"$RCLONE_BIN" '{operation}' '{escaped_source}' '{escaped_dest}' --config "$RCLONE_CONFIG" {flags} --log-file "$LOG_FILE" --log-level INFO"#,
+                source = source,
+                dest = destination_with_folder,
+                operation = shell_escape(operation),
+                escaped_source = shell_escape(source),
+                escaped_dest = shell_escape(&destination_with_folder),
+                flags = flags_str,
             )
         })
         .collect::<Vec<_>>()
@@ -345,17 +401,20 @@ fn generate_backup_commands(sources: &[String], destination: &str, operation: &s
 }
 
 #[cfg(target_os = "windows")]
-fn generate_backup_commands_windows(sources: &[String], destination: &str, operation: &str, flags: &str) -> String {
+fn generate_backup_commands_windows(sources: &[String], destination: &str, operation: &str, flags: &[String]) -> String {
     sources.iter()
         .map(|source| {
-            // Extract folder name from source path to preserve folder structure
             let source_folder_name = std::path::Path::new(source)
                 .file_name()
                 .and_then(|name| name.to_str())
                 .unwrap_or("unknown");
 
-            // Append source folder name to destination
             let destination_with_folder = format!("{}/{}", destination, source_folder_name);
+
+            let flags_str = flags.iter()
+                .map(|f| format!("\"{}\"", f))
+                .collect::<Vec<_>>()
+                .join(" ");
 
             format!(
                 r#"Write-Log "Backing up {} to {}"
@@ -365,7 +424,7 @@ if ($LASTEXITCODE -ne 0) {{
     $BackupSuccess = $false
 }}"#,
                 source, destination_with_folder,
-                operation, source, destination_with_folder, flags,
+                operation, source, destination_with_folder, flags_str,
                 source
             )
         })
@@ -375,7 +434,7 @@ if ($LASTEXITCODE -ne 0) {{
 
 // Stub for non-Windows platforms to avoid compilation errors
 #[cfg(not(target_os = "windows"))]
-fn generate_backup_commands_windows(_sources: &[String], _destination: &str, _operation: &str, _flags: &str) -> String {
+fn generate_backup_commands_windows(_sources: &[String], _destination: &str, _operation: &str, _flags: &[String]) -> String {
     String::new()
 }
 
@@ -518,7 +577,6 @@ async fn create_launchd_schedule(profile: &Profile, schedule: &Schedule, runner_
 
     fs::write(&plist_path, plist_content).map_err(|e| e.to_string())?;
 
-    // Load the launch agent
     let output = tokio::process::Command::new("launchctl")
         .args(&["load", "-w", &plist_path.to_string_lossy()])
         .output()
@@ -536,7 +594,6 @@ async fn create_launchd_schedule(profile: &Profile, schedule: &Schedule, runner_
 async fn create_windows_schedule(profile: &Profile, schedule: &Schedule, runner_script: &PathBuf) -> Result<(), String> {
     let task_name = format!("CloudBackup\\backup-{}", profile.id);
 
-    // Use wscript.exe to run VBScript invisibly (VBScript launches PowerShell hidden)
     let task_run = format!(
         "wscript.exe \"{}\" //B //Nologo",
         runner_script.display()
@@ -546,7 +603,6 @@ async fn create_windows_schedule(profile: &Profile, schedule: &Schedule, runner_
         .map_err(|_| "Invalid time format")?;
     let start_time = format!("{:02}:{:02}", time.hour(), time.minute());
 
-    // Calculate start date - use today if the time hasn't passed yet
     let now = Local::now();
     let today = now.date_naive();
     let today_at_scheduled_time = today.and_time(time);
@@ -554,7 +610,6 @@ async fn create_windows_schedule(profile: &Profile, schedule: &Schedule, runner_
         .single()
         .ok_or("Invalid local datetime")?;
 
-    // If the scheduled time is in the future today, start today; otherwise start tomorrow
     let start_date = if scheduled_datetime > now {
         today
     } else {
@@ -562,19 +617,17 @@ async fn create_windows_schedule(profile: &Profile, schedule: &Schedule, runner_
     };
     let start_date_str = start_date.format("%m/%d/%Y").to_string();
 
-    // Build schtasks arguments
     let mut args = vec![
         "/Create",
         "/TN", &task_name,
         "/TR", &task_run,
         "/ST", &start_time,
-        "/SD", &start_date_str, // Add start date to control when task first runs
-        "/RU", "SYSTEM", // Run as SYSTEM account so it runs whether user is logged in or not
-        "/RL", "HIGHEST", // Run with highest privileges
-        "/F", // Force overwrite if exists
+        "/SD", &start_date_str,
+        "/RU", "SYSTEM",
+        "/RL", "HIGHEST",
+        "/F",
     ];
 
-    // Add frequency-specific arguments
     let (schedule_type, day_arg, day_value);
     match schedule.frequency {
         ScheduleFrequency::Daily => {
@@ -608,13 +661,6 @@ async fn create_windows_schedule(profile: &Profile, schedule: &Schedule, runner_
         .output()
         .await;
 
-    println!("[DEBUG] Creating Windows scheduled task: {}", task_name);
-    println!("[DEBUG] Current time: {}", now.format("%Y-%m-%d %H:%M:%S"));
-    println!("[DEBUG] Scheduled time: {}", scheduled_datetime.format("%Y-%m-%d %H:%M:%S"));
-    println!("[DEBUG] Start date: {}", start_date_str);
-    println!("[DEBUG] Task arguments: {:?}", args);
-
-    // Create the scheduled task
     let output = tokio::process::Command::new("schtasks")
         .args(&args)
         .output()
@@ -626,13 +672,11 @@ async fn create_windows_schedule(profile: &Profile, schedule: &Schedule, runner_
         return Err(format!("Failed to create scheduled task: {}", stderr));
     }
 
-    println!("[DEBUG] Windows scheduled task created successfully");
     Ok(())
 }
 
 #[cfg(target_os = "linux")]
 async fn create_systemd_schedule(_profile: &Profile, _schedule: &Schedule, _runner_script: &PathBuf) -> Result<(), String> {
-    // Systemd user timer implementation would go here
     Err("Linux systemd scheduling not implemented yet".to_string())
 }
 
@@ -645,19 +689,16 @@ pub fn calculate_next_run(schedule: &Schedule) -> Option<DateTime<Utc>> {
     let now_local = Local::now();
     let now_utc = now_local.with_timezone(&Utc);
     let today_local = now_local.date_naive();
-    
+
     match schedule.frequency {
         ScheduleFrequency::Daily => {
-            // Try today first - create local datetime then convert to UTC
             let today_at_time_local = today_local.and_time(time);
             let today_local_dt = Local.from_local_datetime(&today_at_time_local).single()?;
             let today_utc = today_local_dt.with_timezone(&Utc);
-            
+
             if today_utc > now_utc {
-                // Today's time hasn't passed yet
                 Some(today_utc)
             } else {
-                // Tomorrow at the scheduled time
                 let tomorrow_local = today_local + Duration::days(1);
                 let tomorrow_at_time_local = tomorrow_local.and_time(time);
                 let tomorrow_local_dt = Local.from_local_datetime(&tomorrow_at_time_local).single()?;
@@ -672,49 +713,46 @@ pub fn calculate_next_run(schedule: &Schedule) -> Option<DateTime<Utc>> {
             } else {
                 7 - current_weekday + target_weekday
             };
-            
+
             let target_date = if days_until_target == 0 {
-                // It's the target weekday today
                 let today_at_time_local = today_local.and_time(time);
                 let today_local_dt = Local.from_local_datetime(&today_at_time_local).single()?;
                 let today_utc = today_local_dt.with_timezone(&Utc);
-                
+
                 if today_utc > now_utc {
-                    today_local // Today's time hasn't passed yet
+                    today_local
                 } else {
-                    today_local + Duration::days(7) // Next week
+                    today_local + Duration::days(7)
                 }
             } else {
                 today_local + Duration::days(days_until_target as i64)
             };
-            
+
             let target_datetime_local = target_date.and_time(time);
             let target_local_dt = Local.from_local_datetime(&target_datetime_local).single()?;
             Some(target_local_dt.with_timezone(&Utc))
         },
         ScheduleFrequency::Monthly(target_day) => {
             let current_day = today_local.day() as u8;
-            
-            // Try this month first
+
             if target_day >= current_day {
                 if let Some(target_date) = NaiveDate::from_ymd_opt(today_local.year(), today_local.month(), target_day as u32) {
                     let target_datetime_local = target_date.and_time(time);
                     let target_local_dt = Local.from_local_datetime(&target_datetime_local).single()?;
                     let target_utc = target_local_dt.with_timezone(&Utc);
-                    
+
                     if target_utc > now_utc {
                         return Some(target_utc);
                     }
                 }
             }
-            
-            // Next month
+
             let next_month = if today_local.month() == 12 {
                 NaiveDate::from_ymd_opt(today_local.year() + 1, 1, target_day as u32)
             } else {
                 NaiveDate::from_ymd_opt(today_local.year(), today_local.month() + 1, target_day as u32)
             };
-            
+
             if let Some(target_date) = next_month {
                 let target_datetime_local = target_date.and_time(time);
                 let target_local_dt = Local.from_local_datetime(&target_datetime_local).single()?;
@@ -736,13 +774,11 @@ async fn remove_os_schedule(profile: &Profile) -> Result<(), String> {
             .join(&plist_name);
 
         if plist_path.exists() {
-            // Unload the launch agent
             let _ = tokio::process::Command::new("launchctl")
                 .args(&["unload", "-w", &plist_path.to_string_lossy()])
                 .output()
                 .await;
 
-            // Remove the plist file
             fs::remove_file(plist_path).map_err(|e| e.to_string())?;
         }
     }
@@ -751,7 +787,6 @@ async fn remove_os_schedule(profile: &Profile) -> Result<(), String> {
     {
         let task_name = format!("CloudBackup\\backup-{}", profile.id);
 
-        // Delete the scheduled task
         let output = tokio::process::Command::new("schtasks")
             .args(&["/Delete", "/TN", &task_name, "/F"])
             .output()
@@ -759,8 +794,7 @@ async fn remove_os_schedule(profile: &Profile) -> Result<(), String> {
 
         if let Ok(output) = output {
             if !output.status.success() {
-                println!("[DEBUG] Failed to delete task (may not exist): {}",
-                    String::from_utf8_lossy(&output.stderr));
+                // Task may not exist, that's fine
             }
         }
     }
@@ -771,7 +805,6 @@ async fn remove_os_schedule(profile: &Profile) -> Result<(), String> {
 
     #[cfg(windows)]
     {
-        // Remove both VBScript wrapper and PowerShell script
         let vbs_path = scripts_dir.join(format!("backup-{}.vbs", profile.id));
         if vbs_path.exists() {
             let _ = fs::remove_file(vbs_path);

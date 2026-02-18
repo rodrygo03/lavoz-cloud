@@ -8,6 +8,17 @@ use chrono::{DateTime, Utc};
 use crate::models::*;
 use crate::binary_resolver::get_rclone_binary_path;
 
+/// Validate that a subpath does not contain traversal sequences.
+fn validate_subpath(subpath: &str) -> Result<(), String> {
+    // Reject any path component that is ".."
+    for component in subpath.split('/') {
+        if component == ".." {
+            return Err("Path traversal detected: '..' is not allowed in paths".to_string());
+        }
+    }
+    Ok(())
+}
+
 /// Create a Command with Windows-specific flags to hide console window
 fn create_command(program: &str) -> Command {
     let mut cmd = Command::new(program);
@@ -122,7 +133,8 @@ pub async fn validate_rclone_config(rclone_bin: String, config_path: String) -> 
 }
 
 #[command]
-pub async fn list_cloud_files(profile: Profile, path: Option<String>, max_depth: Option<u32>) -> Result<Vec<CloudFile>, String> {
+pub async fn list_cloud_files(profileId: String, path: Option<String>, max_depth: Option<u32>) -> Result<Vec<CloudFile>, String> {
+    let profile = crate::config::load_profile_by_id(&profileId).await?;
     // Admin Access Model:
     // - Admins can BROWSE/VIEW entire bucket (read access)
     // - Admins can BACKUP only to their own prefix: admins/{user-id}/ (write access restricted)
@@ -137,6 +149,7 @@ pub async fn list_cloud_files(profile: Profile, path: Option<String>, max_depth:
     };
     
     let target = if let Some(subpath) = path {
+        validate_subpath(&subpath)?;
         format!("{}/{}", base_target, subpath.trim_start_matches('/'))
     } else {
         base_target
@@ -234,7 +247,8 @@ fn parse_rclone_item(item: &Value) -> Result<Option<CloudFile>, String> {
 }
 
 #[command]
-pub async fn backup_preview(profile: Profile) -> Result<BackupPreview, String> {
+pub async fn backup_preview(profileId: String) -> Result<BackupPreview, String> {
+    let profile = crate::config::load_profile_by_id(&profileId).await?;
     let operation = match profile.mode {
         BackupMode::Copy => "copy",
         BackupMode::Sync => "sync",
@@ -355,7 +369,8 @@ fn extract_file_path_from_notice(line: &str) -> Option<String> {
 }
 
 #[command]
-pub async fn backup_run(profile: Profile, dry_run: bool) -> Result<BackupOperation, String> {
+pub async fn backup_run(profileId: String, dry_run: bool) -> Result<BackupOperation, String> {
+    let profile = crate::config::load_profile_by_id(&profileId).await?;
     let operation_id = uuid::Uuid::new_v4().to_string();
     let started_at = Utc::now();
 
@@ -508,7 +523,8 @@ pub async fn backup_run(profile: Profile, dry_run: bool) -> Result<BackupOperati
 }
 
 #[command]
-pub async fn restore_files(profile: Profile, remote_paths: Vec<String>, local_target: String) -> Result<BackupOperation, String> {
+pub async fn restore_files(profileId: String, remote_paths: Vec<String>, local_target: String) -> Result<BackupOperation, String> {
+    let profile = crate::config::load_profile_by_id(&profileId).await?;
     let operation_id = uuid::Uuid::new_v4().to_string();
     let started_at = Utc::now();
 
@@ -530,9 +546,9 @@ pub async fn restore_files(profile: Profile, remote_paths: Vec<String>, local_ta
     let mut total_files = 0u64;
     let mut total_bytes = 0u64;
 
-    for remote_path in remote_paths {
+    for remote_path in &remote_paths {
+        validate_subpath(remote_path)?;
         let full_remote_path = format!("{}/{}", base_dest, remote_path.trim_start_matches('/'));
-        println!("[DEBUG] restore_files - Attempting to restore from: {}", full_remote_path);
         
         let args = vec![
             "copy".to_string(),

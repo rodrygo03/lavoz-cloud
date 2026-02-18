@@ -9,6 +9,20 @@ use fs2::FileExt;
 
 use crate::models::*;
 
+/// Set restrictive file permissions (owner read/write only) on sensitive files.
+#[cfg(unix)]
+fn set_restricted_permissions(path: &std::path::Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    let perms = std::fs::Permissions::from_mode(0o600);
+    fs::set_permissions(path, perms)
+        .map_err(|e| format!("Failed to set file permissions on {}: {}", path.display(), e))
+}
+
+#[cfg(not(unix))]
+fn set_restricted_permissions(_path: &std::path::Path) -> Result<(), String> {
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn initialize_config() -> Result<(), String> {
     let config_dir = get_config_dir()?;
@@ -130,6 +144,14 @@ fn acquire_config_lock(lock_file: &PathBuf) -> Result<std::fs::File, String> {
     }
 
     Err("Failed to acquire config lock after 10 seconds - another process may have it locked".to_string())
+}
+
+/// Load a single profile by ID from disk. Returns Err if not found.
+pub async fn load_profile_by_id(profile_id: &str) -> Result<Profile, String> {
+    let config = load_config().await?;
+    config.profiles.into_iter()
+        .find(|p| p.id == profile_id)
+        .ok_or_else(|| format!("Profile not found: {}", profile_id))
 }
 
 #[command]
@@ -281,11 +303,10 @@ acl = private
         region
     );
 
-    println!("Writing rclone config to: {}", rclone_conf_path.display());
     fs::write(&rclone_conf_path, &rclone_config)
         .map_err(|e| format!("Failed to write rclone config: {}", e))?;
+    set_restricted_permissions(&rclone_conf_path)?;
 
-    println!("Rclone config written successfully");
     Ok(())
 }
 
@@ -305,9 +326,6 @@ pub async fn create_profile(name: String, profile_type: ProfileType) -> Result<P
 pub async fn update_profile(profile: Profile) -> Result<Profile, String> {
     let mut config = load_config().await?;
 
-    println!("Attempting to update profile with ID: {}", profile.id);
-    println!("Existing profile IDs in config: {:?}", config.profiles.iter().map(|p| &p.id).collect::<Vec<_>>());
-
     if let Some(existing) = config.profiles.iter_mut().find(|p| p.id == profile.id) {
         let mut updated_profile = profile;
         updated_profile.updated_at = Utc::now();
@@ -315,13 +333,9 @@ pub async fn update_profile(profile: Profile) -> Result<Profile, String> {
 
         config.updated_at = Utc::now();
         save_config(&config).await?;
-        println!("Profile updated successfully");
         Ok(updated_profile)
     } else {
-        println!("Profile not found! Looking for ID: {}", profile.id);
-        Err(format!("Profile not found. Looking for ID: {}, Available IDs: {:?}",
-            profile.id,
-            config.profiles.iter().map(|p| &p.id).collect::<Vec<_>>()))
+        Err("Profile not found".to_string())
     }
 }
 
@@ -419,7 +433,8 @@ location_constraint = {}
     );
     
     fs::write(&rclone_conf_path, rclone_config).map_err(|e| e.to_string())?;
-    
+    set_restricted_permissions(&rclone_conf_path)?;
+
     Ok(rclone_conf_path.to_string_lossy().to_string())
 }
 
@@ -768,7 +783,8 @@ location_constraint = {}
     );
     
     fs::write(&rclone_conf_path, rclone_config).map_err(|e| format!("Failed to write rclone config: {}", e))?;
-    
+    set_restricted_permissions(&rclone_conf_path)?;
+
     // 3. Update profile with all the configuration
     let profile_mut = config.profiles.iter_mut()
         .find(|p| p.id == profile_id)

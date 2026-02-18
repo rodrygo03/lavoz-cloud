@@ -6,8 +6,287 @@ use crate::models::*;
 
 /// Get AWS binary path - uses awscli package from system PATH
 fn get_aws_command() -> Result<String, String> {
-    // Use aws from PATH (awscli package)
     Ok("aws".to_string())
+}
+
+/// Run an AWS CLI command, returning stdout on success or an error.
+async fn run_aws(args: &[&str], profile: &str) -> Result<String, String> {
+    let aws_cmd = get_aws_command()?;
+    let mut cmd_args: Vec<&str> = args.to_vec();
+    cmd_args.push("--profile");
+    cmd_args.push(profile);
+
+    let output = Command::new(&aws_cmd)
+        .args(&cmd_args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| format!("Failed to execute AWS CLI: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("AWS CLI failed: {}", stderr));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// Run an AWS CLI command, returning None on failure instead of Err.
+async fn run_aws_allow_failure(args: &[&str], profile: &str) -> Option<String> {
+    run_aws(args, profile).await.ok()
+}
+
+async fn ensure_bucket_exists(bucket: &str, region: &str, profile: &str) -> Result<(), String> {
+    // Check if bucket exists
+    let exists = run_aws_allow_failure(
+        &["s3api", "head-bucket", "--bucket", bucket, "--region", region],
+        profile,
+    ).await;
+
+    if exists.is_none() {
+        let s3_url = format!("s3://{}", bucket);
+        run_aws(&["s3", "mb", &s3_url, "--region", region], profile).await?;
+    }
+
+    Ok(())
+}
+
+async fn enable_versioning(bucket: &str, profile: &str) -> Result<(), String> {
+    run_aws(
+        &[
+            "s3api", "put-bucket-versioning",
+            "--bucket", bucket,
+            "--versioning-configuration", "Status=Enabled",
+        ],
+        profile,
+    ).await?;
+    Ok(())
+}
+
+async fn enable_encryption(bucket: &str, profile: &str) -> Result<(), String> {
+    let config = serde_json::json!({
+        "Rules": [{
+            "ApplyServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+            },
+            "BucketKeyEnabled": true
+        }]
+    }).to_string();
+
+    run_aws(
+        &[
+            "s3api", "put-bucket-encryption",
+            "--bucket", bucket,
+            "--server-side-encryption-configuration", &config,
+        ],
+        profile,
+    ).await?;
+    Ok(())
+}
+
+async fn block_public_access(bucket: &str, profile: &str) -> Result<(), String> {
+    run_aws(
+        &[
+            "s3api", "put-public-access-block",
+            "--bucket", bucket,
+            "--public-access-block-configuration",
+            "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true",
+        ],
+        profile,
+    ).await?;
+    Ok(())
+}
+
+async fn apply_tls_policy(bucket: &str, profile: &str) -> Result<(), String> {
+    let policy = serde_json::json!({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Sid": "DenyInsecureConnections",
+            "Effect": "Deny",
+            "Principal": "*",
+            "Action": "s3:*",
+            "Resource": [
+                format!("arn:aws:s3:::{}", bucket),
+                format!("arn:aws:s3:::{}/*", bucket)
+            ],
+            "Condition": {
+                "Bool": {
+                    "aws:SecureTransport": "false"
+                }
+            }
+        }]
+    }).to_string();
+
+    run_aws(
+        &[
+            "s3api", "put-bucket-policy",
+            "--bucket", bucket,
+            "--policy", &policy,
+        ],
+        profile,
+    ).await?;
+    Ok(())
+}
+
+async fn apply_lifecycle(bucket: &str, config: &LifecycleConfig, profile: &str) -> Result<(), String> {
+    if !config.enabled {
+        return Ok(());
+    }
+
+    let mut transitions = vec![
+        serde_json::json!({
+            "Days": config.days_to_ia,
+            "StorageClass": "STANDARD_IA"
+        })
+    ];
+
+    // 999999 means "never transition to Glacier"
+    if config.days_to_glacier != 999999 {
+        transitions.push(serde_json::json!({
+            "Days": config.days_to_glacier,
+            "StorageClass": "GLACIER"
+        }));
+    }
+
+    let lifecycle = serde_json::json!({
+        "Rules": [{
+            "ID": "OptimizeStorage",
+            "Status": "Enabled",
+            "Filter": {},
+            "Transitions": transitions
+        }]
+    }).to_string();
+
+    run_aws(
+        &[
+            "s3api", "put-bucket-lifecycle-configuration",
+            "--bucket", bucket,
+            "--lifecycle-configuration", &lifecycle,
+        ],
+        profile,
+    ).await?;
+    Ok(())
+}
+
+fn build_admin_policy(bucket: &str) -> String {
+    serde_json::json!({
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:ListBucket",
+                    "s3:ListBucketVersions",
+                    "s3:GetBucketLocation"
+                ],
+                "Resource": format!("arn:aws:s3:::{}", bucket)
+            },
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:GetObject",
+                    "s3:GetObjectVersion",
+                    "s3:PutObject",
+                    "s3:PutObjectAcl",
+                    "s3:DeleteObject",
+                    "s3:DeleteObjectVersion",
+                    "s3:AbortMultipartUpload",
+                    "s3:ListMultipartUploadParts"
+                ],
+                "Resource": format!("arn:aws:s3:::{}/*", bucket)
+            }
+        ]
+    }).to_string()
+}
+
+fn build_employee_policy(bucket: &str, employee: &str) -> String {
+    serde_json::json!({
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": ["s3:ListBucket"],
+                "Resource": format!("arn:aws:s3:::{}", bucket),
+                "Condition": {
+                    "StringLike": {
+                        "s3:prefix": [
+                            format!("{}/*", employee),
+                            employee.to_string()
+                        ]
+                    }
+                }
+            },
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:GetObject",
+                    "s3:GetObjectVersion",
+                    "s3:PutObject",
+                    "s3:PutObjectAcl",
+                    "s3:DeleteObject",
+                    "s3:DeleteObjectVersion",
+                    "s3:AbortMultipartUpload",
+                    "s3:ListMultipartUploadParts"
+                ],
+                "Resource": [
+                    format!("arn:aws:s3:::{}/{}/*", bucket, employee),
+                    format!("arn:aws:s3:::{}/{}", bucket, employee)
+                ]
+            }
+        ]
+    }).to_string()
+}
+
+/// Creates an IAM user (if not exists), attaches an inline policy, creates an access key.
+/// Returns (access_key_id, secret_access_key).
+async fn create_iam_user_with_policy(
+    username: &str,
+    policy_json: &str,
+    policy_name: &str,
+    profile: &str,
+) -> Result<(String, String), String> {
+    // Create user if not exists
+    let user_exists = run_aws_allow_failure(
+        &["iam", "get-user", "--user-name", username],
+        profile,
+    ).await;
+
+    if user_exists.is_none() {
+        run_aws(&["iam", "create-user", "--user-name", username], profile).await?;
+    }
+
+    // Attach inline policy
+    run_aws(
+        &[
+            "iam", "put-user-policy",
+            "--user-name", username,
+            "--policy-name", policy_name,
+            "--policy-document", policy_json,
+        ],
+        profile,
+    ).await?;
+
+    // Create access key and parse JSON response
+    let key_output = run_aws(
+        &["iam", "create-access-key", "--user-name", username, "--output", "json"],
+        profile,
+    ).await?;
+
+    let parsed: serde_json::Value = serde_json::from_str(&key_output)
+        .map_err(|e| format!("Failed to parse access key response: {}", e))?;
+
+    let access_key_id = parsed["AccessKey"]["AccessKeyId"]
+        .as_str()
+        .ok_or("Missing AccessKeyId in response")?
+        .to_string();
+
+    let secret_access_key = parsed["AccessKey"]["SecretAccessKey"]
+        .as_str()
+        .ok_or("Missing SecretAccessKey in response")?
+        .to_string();
+
+    Ok((access_key_id, secret_access_key))
 }
 
 #[command]
@@ -32,8 +311,7 @@ pub async fn configure_aws_credentials(
     profileName: Option<String>
 ) -> Result<String, String> {
     let profile = profileName.unwrap_or_else(|| "default".to_string());
-    
-    // Configure AWS CLI with access keys
+
     let output_format = "json".to_string();
     let commands = vec![
         ("aws_access_key_id", &accessKeyId),
@@ -44,7 +322,7 @@ pub async fn configure_aws_credentials(
 
     for (key, value) in commands {
         let cmd_args = vec![
-            "configure".to_string(), 
+            "configure".to_string(),
             "set".to_string(),
             format!("profile.{}.{}", profile, key),
             value.to_string()
@@ -64,7 +342,6 @@ pub async fn configure_aws_credentials(
         }
     }
 
-    // Test the credentials
     let aws_cmd = get_aws_command()?;
     let test_output = Command::new(aws_cmd)
         .args(&["sts", "get-caller-identity", "--profile", &profile])
@@ -86,8 +363,7 @@ pub async fn configure_aws_credentials(
 #[command]
 pub async fn validate_aws_permissions(profile_name: Option<String>) -> Result<String, String> {
     let profile = profile_name.unwrap_or_else(|| "default".to_string());
-    
-    // Get caller identity to check if credentials work
+
     let aws_cmd = get_aws_command()?;
     let output = Command::new(aws_cmd)
         .args(&["sts", "get-caller-identity", "--profile", &profile])
@@ -115,404 +391,64 @@ pub async fn setup_aws_infrastructure(
     profileName: Option<String>
 ) -> Result<AwsConfig, String> {
     let profile = profileName.unwrap_or_else(|| "default".to_string());
-    // Create the setup script content based on the backup-test script
-    let script_content = generate_setup_script(
-        &bucket_name,
-        &region,
+
+    // 1. Create bucket if needed
+    ensure_bucket_exists(&bucket_name, &region, &profile).await?;
+
+    // 2. Enable versioning
+    enable_versioning(&bucket_name, &profile).await?;
+
+    // 3. Enable encryption
+    enable_encryption(&bucket_name, &profile).await?;
+
+    // 4. Block public access
+    block_public_access(&bucket_name, &profile).await?;
+
+    // 5. Apply TLS-only bucket policy
+    apply_tls_policy(&bucket_name, &profile).await?;
+
+    // 6. Apply lifecycle rules
+    apply_lifecycle(&bucket_name, &lifecycle_config, &profile).await?;
+
+    // 7. Create admin IAM user with policy
+    let admin_policy = build_admin_policy(&bucket_name);
+    let (admin_key, admin_secret) = create_iam_user_with_policy(
         &admin_username,
-        &lifecycle_config,
-        &employees,
-        &profile
-    );
+        &admin_policy,
+        "BackupAdminPolicy",
+        &profile,
+    ).await?;
 
-    // Write the script to a temporary file
-    let script_path = "/tmp/setup-bucket.sh";
-    tokio::fs::write(script_path, script_content)
-        .await
-        .map_err(|e| format!("Failed to write setup script: {}", e))?;
+    // 8. Create employee IAM users with per-user policies
+    let mut employee_list = Vec::new();
+    for employee_name in &employees {
+        let employee_policy = build_employee_policy(&bucket_name, employee_name);
+        let (emp_key, emp_secret) = create_iam_user_with_policy(
+            employee_name,
+            &employee_policy,
+            "BackupEmployeePolicy",
+            &profile,
+        ).await?;
 
-    // Make the script executable
-    Command::new("chmod")
-        .args(&["+x", script_path])
-        .output()
-        .await
-        .map_err(|e| format!("Failed to make script executable: {}", e))?;
-
-    // Execute the setup script
-    let output = Command::new("bash")
-        .arg(script_path)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .await
-        .map_err(|e| format!("Failed to execute setup script: {}", e))?;
-
-    if !output.status.success() {
-        return Err(format!("Setup script failed: {}", String::from_utf8_lossy(&output.stderr)));
-    }
-
-    // Parse the output to get credentials
-    let output_str = String::from_utf8_lossy(&output.stdout);
-    parse_setup_output(&output_str, bucket_name, region, admin_username, lifecycle_config, employees)
-}
-
-fn generate_setup_script(
-    bucket_name: &str,
-    region: &str,
-    admin_username: &str,
-    lifecycle_config: &LifecycleConfig,
-    employees: &[String],
-    profile: &str
-) -> String {
-    let employees_str = employees.join(" ");
-    
-    format!(r#"#!/bin/bash
-set -euo pipefail
-
-# Configuration
-BUCKET="{bucket_name}"
-REGION="{region}"
-ADMIN_USER="{admin_username}"
-EMPLOYEES="{employees_str}"
-PROFILE="{profile}"
-
-ENABLE_LIFECYCLE="{lifecycle_enabled}"
-DAYS_TO_IA="{days_to_ia}"
-DAYS_TO_GLACIER="{days_to_glacier}"
-
-# Create output directory
-mkdir -p /tmp/aws-output/creds
-
-echo "Setting up shared bucket: $BUCKET with profile: $PROFILE"
-
-# 1. Create bucket if it doesn't exist
-aws s3api head-bucket --bucket "$BUCKET" --region "$REGION" --profile "$PROFILE" 2>/dev/null || {{
-    aws s3 mb s3://"$BUCKET" --region "$REGION" --profile "$PROFILE"
-}}
-
-# 2. Enable Versioning
-echo "Enabling versioning..."
-aws s3api put-bucket-versioning \
-    --bucket "$BUCKET" \
-    --versioning-configuration Status=Enabled \
-    --profile "$PROFILE"
-
-# 3. Enable default encryption (SSE-S3)
-echo "Enabling SSE-S3 encryption..."
-aws s3api put-bucket-encryption \
-    --bucket "$BUCKET" \
-    --server-side-encryption-configuration '{{
-        "Rules": [
-            {{
-                "ApplyServerSideEncryptionByDefault": {{
-                    "SSEAlgorithm": "AES256"
-                }},
-                "BucketKeyEnabled": true
-            }}
-        ]
-    }}' \
-    --profile "$PROFILE"
-
-# 4. Block public access
-echo "Blocking public access..."
-aws s3api put-public-access-block \
-    --bucket "$BUCKET" \
-    --public-access-block-configuration \
-    BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true \
-    --profile "$PROFILE"
-
-# 5. Apply bucket policy to deny non-TLS
-echo "Applying TLS-only bucket policy..."
-cat > /tmp/bucket-policy.json << 'EOF'
-{{
-    "Version": "2012-10-17",
-    "Statement": [
-        {{
-            "Sid": "DenyInsecureConnections",
-            "Effect": "Deny",
-            "Principal": "*",
-            "Action": "s3:*",
-            "Resource": [
-                "arn:aws:s3:::{bucket_name}",
-                "arn:aws:s3:::{bucket_name}/*"
-            ],
-            "Condition": {{
-                "Bool": {{
-                    "aws:SecureTransport": "false"
-                }}
-            }}
-        }}
-    ]
-}}
-EOF
-
-aws s3api put-bucket-policy \
-    --bucket "$BUCKET" \
-    --policy file:///tmp/bucket-policy.json \
-    --profile "$PROFILE"
-
-rm /tmp/bucket-policy.json
-
-# 6. Optional Lifecycle (optimization without deletion)
-if [ "$ENABLE_LIFECYCLE" = "true" ]; then
-    echo "Setting up lifecycle policy..."
-    
-    # Check if Glacier transition should be included (999999 means never)
-    if [ "$DAYS_TO_GLACIER" -eq 999999 ]; then
-        # Only Standard-IA transition, no Glacier
-        cat > /tmp/lifecycle.json << EOF
-{{
-    "Rules": [
-        {{
-            "ID": "OptimizeStorage",
-            "Status": "Enabled",
-            "Filter": {{}},
-            "Transitions": [
-                {{
-                    "Days": $DAYS_TO_IA,
-                    "StorageClass": "STANDARD_IA"
-                }}
-            ]
-        }}
-    ]
-}}
-EOF
-    else
-        # Include both Standard-IA and Glacier transitions
-        cat > /tmp/lifecycle.json << EOF
-{{
-    "Rules": [
-        {{
-            "ID": "OptimizeStorage",
-            "Status": "Enabled",
-            "Filter": {{}},
-            "Transitions": [
-                {{
-                    "Days": $DAYS_TO_IA,
-                    "StorageClass": "STANDARD_IA"
-                }},
-                {{
-                    "Days": $DAYS_TO_GLACIER,
-                    "StorageClass": "GLACIER"
-                }}
-            ]
-        }}
-    ]
-}}
-EOF
-    fi
-
-    aws s3api put-bucket-lifecycle-configuration \
-        --bucket "$BUCKET" \
-        --lifecycle-configuration file:///tmp/lifecycle.json \
-        --profile "$PROFILE"
-
-    rm /tmp/lifecycle.json
-fi
-
-# 7. Create IAM users and get credentials
-echo "=== CREDENTIALS START ==="
-
-# Create admin user if not exists
-if ! aws iam get-user --user-name "$ADMIN_USER" --profile "$PROFILE" >/dev/null 2>&1; then
-    echo "Creating admin user: $ADMIN_USER"
-    aws iam create-user --user-name "$ADMIN_USER" --profile "$PROFILE"
-fi
-
-# Create admin policy
-cat > /tmp/admin-policy.json << 'EOF'
-{{
-    "Version": "2012-10-17",
-    "Statement": [
-        {{
-            "Effect": "Allow",
-            "Action": [
-                "s3:ListBucket",
-                "s3:ListBucketVersions",
-                "s3:GetBucketLocation"
-            ],
-            "Resource": "arn:aws:s3:::{bucket_name}"
-        }},
-        {{
-            "Effect": "Allow",
-            "Action": [
-                "s3:GetObject",
-                "s3:GetObjectVersion",
-                "s3:PutObject",
-                "s3:PutObjectAcl",
-                "s3:DeleteObject",
-                "s3:DeleteObjectVersion",
-                "s3:AbortMultipartUpload",
-                "s3:ListMultipartUploadParts"
-            ],
-            "Resource": "arn:aws:s3:::{bucket_name}/*"
-        }}
-    ]
-}}
-EOF
-
-# Attach admin policy
-aws iam put-user-policy \
-    --user-name "$ADMIN_USER" \
-    --policy-name "BackupAdminPolicy" \
-    --policy-document file:///tmp/admin-policy.json \
-    --profile "$PROFILE"
-
-# Create access key for admin
-echo "Creating access key for $ADMIN_USER..."
-ADMIN_CREDS=$(aws iam create-access-key --user-name "$ADMIN_USER" --output json --profile "$PROFILE")
-ADMIN_KEY=$(echo "$ADMIN_CREDS" | jq -r '.AccessKey.AccessKeyId')
-ADMIN_SECRET=$(echo "$ADMIN_CREDS" | jq -r '.AccessKey.SecretAccessKey')
-
-echo "ADMIN_CREDENTIALS:$ADMIN_KEY:$ADMIN_SECRET"
-
-# Create employee users
-for employee in $EMPLOYEES; do
-    echo "Setting up user: $employee"
-    
-    # Create employee user if not exists
-    if ! aws iam get-user --user-name "$employee" --profile "$PROFILE" >/dev/null 2>&1; then
-        aws iam create-user --user-name "$employee" --profile "$PROFILE"
-    fi
-
-    # Employee-specific policy
-    cat > /tmp/employee-policy.json << EOF
-{{
-    "Version": "2012-10-17",
-    "Statement": [
-        {{
-            "Effect": "Allow",
-            "Action": [
-                "s3:ListBucket"
-            ],
-            "Resource": "arn:aws:s3:::{bucket_name}",
-            "Condition": {{
-                "StringLike": {{
-                    "s3:prefix": [
-                        "$employee/*",
-                        "$employee"
-                    ]
-                }}
-            }}
-        }},
-        {{
-            "Effect": "Allow",
-            "Action": [
-                "s3:GetObject",
-                "s3:GetObjectVersion",
-                "s3:PutObject",
-                "s3:PutObjectAcl",
-                "s3:DeleteObject",
-                "s3:DeleteObjectVersion",
-                "s3:AbortMultipartUpload",
-                "s3:ListMultipartUploadParts"
-            ],
-            "Resource": [
-                "arn:aws:s3:::{bucket_name}/$employee/*",
-                "arn:aws:s3:::{bucket_name}/$employee"
-            ]
-        }}
-    ]
-}}
-EOF
-
-    # Attach employee policy
-    aws iam put-user-policy \
-        --user-name "$employee" \
-        --policy-name "BackupEmployeePolicy" \
-        --policy-document file:///tmp/employee-policy.json \
-        --profile "$PROFILE"
-
-    # Create access key for employee
-    EMPLOYEE_CREDS=$(aws iam create-access-key --user-name "$employee" --output json --profile "$PROFILE")
-    EMPLOYEE_KEY=$(echo "$EMPLOYEE_CREDS" | jq -r '.AccessKey.AccessKeyId')
-    EMPLOYEE_SECRET=$(echo "$EMPLOYEE_CREDS" | jq -r '.AccessKey.SecretAccessKey')
-
-    echo "EMPLOYEE_CREDENTIALS:$employee:$EMPLOYEE_KEY:$EMPLOYEE_SECRET"
-done
-
-echo "=== CREDENTIALS END ==="
-
-# Cleanup
-rm -f /tmp/admin-policy.json /tmp/employee-policy.json
-
-echo "Setup completed successfully!"
-"#,
-        bucket_name = bucket_name,
-        region = region,
-        admin_username = admin_username,
-        employees_str = employees_str,
-        profile = profile,
-        lifecycle_enabled = lifecycle_config.enabled,
-        days_to_ia = lifecycle_config.days_to_ia,
-        days_to_glacier = lifecycle_config.days_to_glacier
-    )
-}
-
-fn parse_setup_output(
-    output: &str,
-    bucket_name: String,
-    region: String,
-    _admin_username: String,
-    lifecycle_config: LifecycleConfig,
-    _employee_names: Vec<String>
-) -> Result<AwsConfig, String> {
-    let mut admin_key = String::new();
-    let mut admin_secret = String::new();
-    let mut employees = Vec::new();
-
-    let lines: Vec<&str> = output.lines().collect();
-    let mut in_credentials = false;
-
-    for line in lines {
-        if line == "=== CREDENTIALS START ===" {
-            in_credentials = true;
-            continue;
-        }
-        if line == "=== CREDENTIALS END ===" {
-            break;
-        }
-        
-        if in_credentials {
-            if line.starts_with("ADMIN_CREDENTIALS:") {
-                let parts: Vec<&str> = line.split(':').collect();
-                if parts.len() >= 3 {
-                    admin_key = parts[1].to_string();
-                    admin_secret = parts[2].to_string();
-                }
-            } else if line.starts_with("EMPLOYEE_CREDENTIALS:") {
-                let parts: Vec<&str> = line.split(':').collect();
-                if parts.len() >= 4 {
-                    let name = parts[1].to_string();
-                    let key = parts[2].to_string();
-                    let secret = parts[3].to_string();
-                    
-                    employees.push(Employee {
-                        id: uuid::Uuid::new_v4().to_string(),
-                        name: name.clone(),
-                        username: name,
-                        access_key_id: key,
-                        secret_access_key: secret,
-                        rclone_config_generated: false,
-                        created_at: chrono::Utc::now(),
-                    });
-                }
-            }
-        }
-    }
-
-    if admin_key.is_empty() || admin_secret.is_empty() {
-        return Err("Failed to parse admin credentials from setup output".to_string());
+        employee_list.push(Employee {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: employee_name.clone(),
+            username: employee_name.clone(),
+            access_key_id: emp_key,
+            secret_access_key: emp_secret,
+            rclone_config_generated: false,
+            created_at: chrono::Utc::now(),
+        });
     }
 
     Ok(AwsConfig {
         aws_access_key_id: admin_key,
         aws_secret_access_key: admin_secret,
         aws_region: region,
-        aws_sso_configured: false, // Using traditional credentials, not SSO
+        aws_sso_configured: false,
         bucket_name,
         lifecycle_config,
-        employees,
+        employees: employee_list,
     })
 }
 
@@ -543,9 +479,9 @@ acl = private
 #[command]
 pub async fn get_employee_credentials(profile_id: String, employee_id: String) -> Result<Employee, String> {
     use crate::config::load_config;
-    
+
     let config = load_config().await?;
-    
+
     if let Some(profile) = config.profiles.iter().find(|p| p.id == profile_id) {
         if let Some(aws_config) = &profile.aws_config {
             if let Some(employee) = aws_config.employees.iter().find(|e| e.id == employee_id) {
@@ -553,6 +489,6 @@ pub async fn get_employee_credentials(profile_id: String, employee_id: String) -
             }
         }
     }
-    
+
     Err("Employee not found".to_string())
 }

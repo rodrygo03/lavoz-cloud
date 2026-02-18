@@ -102,7 +102,7 @@ export default function Dashboard({ profile }: DashboardProps) {
     try {
       console.log('Invoking backup_run command');
       const operation = await invoke<BackupOperation>('backup_run', {
-        profile,
+        profileId: profile.id,
         dryRun: false
       });
 
@@ -137,7 +137,7 @@ export default function Dashboard({ profile }: DashboardProps) {
     try {
       console.log('Invoking backup_preview command');
       const previewResult = await invoke<BackupPreview>('backup_preview', {
-        profile
+        profileId: profile.id
       });
       console.log('Preview result:', previewResult);
       setPreview(previewResult);
