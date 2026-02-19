@@ -30,13 +30,13 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
   const [activeTab, setActiveTab] = useState<'general' | 'sources' | 'advanced' | 'schedule'>('general');
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
-  const [hasShownScheduleAlert, setHasShownScheduleAlert] = useState(false);
+
   const [showScheduleNotification, setShowScheduleNotification] = useState(false);
 
   useEffect(() => {
     if (profile) {
       setEditedProfile({ ...profile });
-      setHasShownScheduleAlert(false); // Reset alert flag for new profile
+
       loadSchedule();
     }
   }, [profile]);
@@ -53,15 +53,10 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
   const loadSchedule = async () => {
     if (!profile) return;
     
-    console.log('=== LOADING SCHEDULE ===');
-    console.log('Profile ID:', profile.id);
-    
     try {
       const scheduleData = await invoke<Schedule | null>('get_schedule_status', {
         profileId: profile.id
       });
-      
-      console.log('Raw schedule data from backend:', scheduleData);
       
       // If no schedule exists, create a default one
       if (!scheduleData) {
@@ -73,12 +68,8 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
           next_run: undefined
         };
         setSchedule(defaultSchedule);
-        console.log('No schedule found, using default schedule:', defaultSchedule);
       } else {
         setSchedule(scheduleData);
-        console.log('Loaded schedule from backend:', scheduleData);
-        console.log('Schedule time field:', scheduleData.time);
-        console.log('Schedule next_run field:', scheduleData.next_run);
       }
     } catch (error) {
       console.error('Failed to load schedule:', error);
@@ -150,34 +141,20 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
   const saveSchedule = async (showAlert = true) => {
     if (!profile || !schedule) return;
 
-    console.log('=== SAVING SCHEDULE ===');
-    console.log('Profile ID:', profile.id);
-    console.log('Schedule object:', JSON.stringify(schedule, null, 2));
-    console.log('Schedule time field:', schedule.time);
-    console.log('showAlert parameter:', showAlert);
-    console.log('hasShownScheduleAlert:', hasShownScheduleAlert);
-    console.trace('saveSchedule called from:');
-    
     try {
       if (schedule.enabled) {
-        console.log('Enabling schedule backup');
-        const response = await invoke('schedule_backup', {
+        await invoke('schedule_backup', {
           profileId: profile.id,
           schedule
         });
-        console.log('Schedule backup response:', response);
-        console.log('Schedule backup enabled successfully');
       } else {
-        console.log('Disabling schedule backup');
         await invoke('unschedule_backup', {
           profileId: profile.id
         });
-        console.log('Schedule backup disabled successfully');
       }
       
       // Show notification for user action
       if (showAlert) {
-        console.log('Schedule updated successfully - user action');
         setShowScheduleNotification(true);
         // Hide notification after 3 seconds
         setTimeout(() => {
@@ -185,7 +162,6 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
         }, 3000);
       }
       
-      console.log('Reloading schedule to check next_run...');
       await loadSchedule(); // Reload to get updated next_run time
     } catch (error) {
       console.error('Failed to save schedule:', error);
@@ -232,18 +208,12 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
     if (!profile) return;
     
     try {
-      console.log('Starting complete auto-setup for profile:', profile.id);
       const updatedProfile = await invoke<Profile>('auto_setup_rclone_complete', {
         profileId: profile.id
       });
       
-      console.log('Complete auto-setup successful, updated profile:', updatedProfile);
       setEditedProfile(updatedProfile);
       setHasChanges(true);
-      console.log('Rclone fully configured successfully!');
-      console.log('- Binary:', updatedProfile.rclone_bin);
-      console.log('- Config:', updatedProfile.rclone_conf);
-      console.log('- Remote:', updatedProfile.remote);
     } catch (error) {
       console.error('Failed to auto-setup rclone:', error);
     }
@@ -333,7 +303,6 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                     type="button"
                     className="btn btn-secondary"
                     onClick={() => {
-                      console.log('Auto-setup button clicked!');
                       autoConfigureRclone();
                     }}
                   >
@@ -604,8 +573,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                         const hour = Math.max(0, Math.min(23, parseInt(e.target.value) || 0));
                         const minute = (schedule?.time || "02:00").split(':')[1] || "00";
                         const newTime = `${hour.toString().padStart(2, '0')}:${minute}`;
-                        console.log('Hour changed, new time:', newTime);
-                        
+
                         if (!schedule) {
                           const newSchedule: Schedule = {
                             enabled: false,
@@ -633,8 +601,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
                         const minute = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
                         const hour = (schedule?.time || "02:00").split(':')[0] || "02";
                         const newTime = `${hour}:${minute.toString().padStart(2, '0')}`;
-                        console.log('Minute changed, new time:', newTime);
-                        
+
                         if (!schedule) {
                           const newSchedule: Schedule = {
                             enabled: false,

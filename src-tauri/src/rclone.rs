@@ -42,7 +42,6 @@ fn resolve_rclone_binary(profile_rclone_bin: &str) -> Result<String, String> {
         match get_rclone_binary_path() {
             Ok(bundled_path) => {
                 let path_str = bundled_path.to_string_lossy().to_string();
-                println!("[DEBUG] Resolved rclone binary to: {}", path_str);
                 return Ok(path_str);
             }
             Err(e) => {
@@ -449,12 +448,6 @@ pub async fn backup_run(profileId: String, dry_run: bool) -> Result<BackupOperat
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
 
-        println!("[DEBUG] ===== STDOUT for {} =====", source);
-        println!("{}", stdout);
-        println!("[DEBUG] ===== STDERR for {} =====", source);
-        println!("{}", stderr);
-        println!("[DEBUG] ===== END OUTPUT =====");
-
         combined_output.push_str(&format!("=== Source: {} ===\n", source));
         combined_output.push_str(&stdout);
         combined_output.push_str(&stderr);
@@ -486,11 +479,8 @@ pub async fn backup_run(profileId: String, dry_run: bool) -> Result<BackupOperat
         // Parse both bytes and file count from stdout
         let (files_from_operations, _) = parse_rclone_file_operations(&stdout);
         if let Some((_, bytes)) = parse_rclone_stats(&stdout) {
-            println!("[DEBUG] Parsed rclone stats for source {}: {} files, {} bytes", source, files_from_operations, bytes);
             total_files += files_from_operations;
             total_bytes += bytes;
-        } else {
-            println!("[DEBUG] Could not parse rclone stats from stdout for source: {}", source);
         }
     }
 
@@ -506,8 +496,6 @@ pub async fn backup_run(profileId: String, dry_run: bool) -> Result<BackupOperat
         error_message: None,
         log_output: combined_output,
     };
-
-    println!("[DEBUG] Manual backup completed - files: {}, bytes: {}", total_files, total_bytes);
 
     // Save the operation to config
     if let Err(e) = crate::config::save_backup_operation(operation.clone()).await {
@@ -537,10 +525,6 @@ pub async fn restore_files(profileId: String, remote_paths: Vec<String>, local_t
         // Regular users restore only from their prefix
         profile.destination()
     };
-
-    println!("[DEBUG] restore_files - Profile type: {:?}", profile.profile_type);
-    println!("[DEBUG] restore_files - base_dest: {}", base_dest);
-    println!("[DEBUG] restore_files - remote_paths: {:?}", remote_paths);
 
     let mut combined_output = String::new();
     let mut total_files = 0u64;
@@ -576,12 +560,6 @@ pub async fn restore_files(profileId: String, remote_paths: Vec<String>, local_t
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
 
-        println!("[DEBUG] ===== STDOUT for restore {} =====", remote_path);
-        println!("{}", stdout);
-        println!("[DEBUG] ===== STDERR for restore {} =====", remote_path);
-        println!("{}", stderr);
-        println!("[DEBUG] ===== END OUTPUT =====");
-
         combined_output.push_str(&format!("=== Restoring: {} ===\n", remote_path));
         combined_output.push_str(&stdout);
         combined_output.push_str(&stderr);
@@ -613,11 +591,8 @@ pub async fn restore_files(profileId: String, remote_paths: Vec<String>, local_t
         // Parse both bytes and file count from stdout
         let (files_from_operations, _) = parse_rclone_file_operations(&stdout);
         if let Some((_, bytes)) = parse_rclone_stats(&stdout) {
-            println!("[DEBUG] Parsed rclone stats for restore {}: {} files, {} bytes", remote_path, files_from_operations, bytes);
             total_files += files_from_operations;
             total_bytes += bytes;
-        } else {
-            println!("[DEBUG] Could not parse rclone stats from stdout for restore: {}", remote_path);
         }
     }
 
@@ -633,8 +608,6 @@ pub async fn restore_files(profileId: String, remote_paths: Vec<String>, local_t
         error_message: None,
         log_output: combined_output,
     };
-
-    println!("[DEBUG] Restore completed - files: {}, bytes: {}", total_files, total_bytes);
 
     // Save the operation to config
     if let Err(e) = crate::config::save_backup_operation(operation.clone()).await {
@@ -661,7 +634,6 @@ fn parse_rclone_file_operations(output: &str) -> (u64, u64) {
         }
     }
 
-    println!("[DEBUG] Parsed file operations from stderr: {} copied, {} deleted", files_copied, files_deleted);
     (files_copied, files_deleted)
 }
 
@@ -680,13 +652,10 @@ fn parse_rclone_stats(output: &str) -> Option<(u64, u64)> {
     let files_transferred = 0u64;
 
     for line in output.lines() {
-        println!("[DEBUG] Parsing line: {}", line);
-
         // Try stats-one-line format first (most common with current flags)
         if let Some(caps) = stats_one_line_regex.captures(line) {
             let bytes_str = &caps[1];
             if let Ok(bytes) = parse_byte_size(bytes_str) {
-                println!("[DEBUG] Parsed byte size from stats-one-line '{}': {} bytes", bytes_str, bytes);
                 bytes_transferred = bytes;
             }
         }
@@ -694,21 +663,14 @@ fn parse_rclone_stats(output: &str) -> Option<(u64, u64)> {
         else if let Some(caps) = transferred_regex.captures(line) {
             let bytes_str = &caps[1];
             if let Ok(bytes) = parse_byte_size(bytes_str) {
-                println!("[DEBUG] Parsed byte size from Transferred line '{}': {} bytes", bytes_str, bytes);
                 bytes_transferred = bytes;
             }
         }
     }
 
-    // For file count, parse stderr/logs for actual file transfer messages
-    // Since --stats-one-line doesn't show file counts, we'll estimate from byte transfers
-    // A better approach would be to count "Copied (new)" or similar messages in verbose output
-
     if bytes_transferred > 0 {
-        println!("[DEBUG] Returning stats: files={}, bytes={}", files_transferred, bytes_transferred);
         Some((files_transferred, bytes_transferred))
     } else {
-        println!("[DEBUG] No stats found in output");
         None
     }
 }
@@ -752,36 +714,18 @@ fn parse_byte_size(size_str: &str) -> Result<u64, String> {
 pub async fn get_backup_logs(profile_id: String, limit: Option<usize>) -> Result<Vec<BackupOperation>, String> {
     let config = crate::config::load_config().await?;
 
-    println!("[DEBUG] get_backup_logs called for profile_id: {}", profile_id);
-    println!("[DEBUG] Total operations in config: {}", config.backup_operations.len());
-
     // Filter operations for the specific profile and apply limit
     let mut operations: Vec<BackupOperation> = config.backup_operations
         .into_iter()
-        .filter(|op| {
-            let matches = op.profile_id == profile_id;
-            if !matches {
-                println!("[DEBUG] Filtering out operation with profile_id: {}", op.profile_id);
-            }
-            matches
-        })
+        .filter(|op| op.profile_id == profile_id)
         .collect();
-
-    println!("[DEBUG] Operations after filtering by profile_id: {}", operations.len());
 
     // Sort by started_at descending (newest first)
     operations.sort_by(|a, b| b.started_at.cmp(&a.started_at));
 
     // Apply limit if specified
     if let Some(limit) = limit {
-        println!("[DEBUG] Applying limit: {}", limit);
         operations.truncate(limit);
-    }
-
-    println!("[DEBUG] Returning {} operations", operations.len());
-    if !operations.is_empty() {
-        println!("[DEBUG] Most recent operation: started_at={:?}, files={}, bytes={}",
-            operations[0].started_at, operations[0].files_transferred, operations[0].bytes_transferred);
     }
 
     Ok(operations)

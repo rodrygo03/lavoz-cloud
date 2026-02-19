@@ -12,9 +12,25 @@ export interface IAMCredentials {
 // This will be set from app configuration
 let LAMBDA_API_URL: string | null = null;
 
+// Rate limiting: track last Lambda invocation time (persisted across app reloads)
+const LAMBDA_RATE_LIMIT_KEY = 'lambda_last_call';
+const LAMBDA_MIN_INTERVAL_MS = 10_000; // 10 seconds between calls
+
+function getLastLambdaCall(): number {
+  const stored = sessionStorage.getItem(LAMBDA_RATE_LIMIT_KEY);
+  return stored ? parseInt(stored, 10) : 0;
+}
+
+function setLastLambdaCall(timestamp: number) {
+  sessionStorage.setItem(LAMBDA_RATE_LIMIT_KEY, timestamp.toString());
+}
+
 export function setLambdaApiUrl(url: string) {
+  // Enforce HTTPS to prevent credential transmission over plain HTTP
+  if (url && !url.startsWith('https://')) {
+    throw new Error('Lambda API URL must use HTTPS');
+  }
   LAMBDA_API_URL = url;
-  console.log('Lambda API URL set to:', url);
 }
 
 export async function getOrCreateIAMCredentials(
@@ -22,16 +38,12 @@ export async function getOrCreateIAMCredentials(
   email: string,
   accessToken: string  // Use access token, not ID token
 ): Promise<IAMCredentials> {
-  console.log('Getting or creating IAM credentials for user:', email);
-
   // Check if we already have stored credentials
   const stored = await invoke<IAMCredentials | null>('get_stored_iam_credentials', {
     userId: cognitoUserId
   });
 
   if (stored) {
-    console.log('Using stored IAM credentials:', stored.iam_username);
-
     // Create scheduled rclone config with stored credentials
     await invoke('create_scheduled_rclone_config', {
       credentials: stored
@@ -40,12 +52,17 @@ export async function getOrCreateIAMCredentials(
     return stored;
   }
 
-  console.log('No stored credentials found, calling Lambda to create IAM user...');
-
   // Validate Lambda URL is configured
   if (!LAMBDA_API_URL) {
     throw new Error('Lambda API URL not configured. Please set it in app configuration.');
   }
+
+  // Rate limit: prevent rapid repeated Lambda calls (survives app reload via sessionStorage)
+  const now = Date.now();
+  if (now - getLastLambdaCall() < LAMBDA_MIN_INTERVAL_MS) {
+    throw new Error('Please wait before requesting new credentials. Try again in a few seconds.');
+  }
+  setLastLambdaCall(now);
 
   // Call Lambda API to create IAM user
   try {
@@ -67,7 +84,6 @@ export async function getOrCreateIAMCredentials(
     }
 
     const data = await response.json();
-    console.log('Lambda response:', data);
 
     if (!data.success) {
       if (data.user_exists) {
@@ -88,8 +104,6 @@ export async function getOrCreateIAMCredentials(
       s3_prefix: data.s3_prefix
     };
 
-    console.log('IAM user created successfully:', credentials.iam_username);
-
     // Store credentials locally
     await invoke('store_iam_credentials', {
       userId: cognitoUserId,
@@ -101,12 +115,11 @@ export async function getOrCreateIAMCredentials(
       credentials
     });
 
-    console.log('IAM credentials stored and rclone config created');
-
     return credentials;
 
   } catch (error) {
-    console.error('Failed to get IAM credentials:', error);
+    // Reset rate limit on failure so user can retry sooner
+    setLastLambdaCall(0);
     throw new Error(`Failed to create IAM user: ${error}`);
   }
 }
@@ -115,5 +128,4 @@ export async function deleteStoredCredentials(cognitoUserId: string): Promise<vo
   await invoke('delete_iam_credentials', {
     userId: cognitoUserId
   });
-  console.log('IAM credentials deleted for user:', cognitoUserId);
 }

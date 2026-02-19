@@ -400,6 +400,13 @@ fn generate_backup_commands(sources: &[String], destination: &str, operation: &s
         .join("\n\n")
 }
 
+/// Escape a string for safe use inside PowerShell single quotes.
+/// PowerShell single-quoted strings only need single quotes doubled.
+#[cfg(target_os = "windows")]
+fn powershell_escape(s: &str) -> String {
+    s.replace('\'', "''")
+}
+
 #[cfg(target_os = "windows")]
 fn generate_backup_commands_windows(sources: &[String], destination: &str, operation: &str, flags: &[String]) -> String {
     sources.iter()
@@ -412,20 +419,23 @@ fn generate_backup_commands_windows(sources: &[String], destination: &str, opera
             let destination_with_folder = format!("{}/{}", destination, source_folder_name);
 
             let flags_str = flags.iter()
-                .map(|f| format!("\"{}\"", f))
+                .map(|f| format!("'{}'", powershell_escape(f)))
                 .collect::<Vec<_>>()
                 .join(" ");
 
             format!(
-                r#"Write-Log "Backing up {} to {}"
-& $RCLONE_BIN {} "{}" "{}" --config $RCLONE_CONFIG {} --log-file $LOG_FILE --log-level INFO
+                r#"Write-Log 'Backing up {escaped_source_display} to {escaped_dest_display}'
+& $RCLONE_BIN '{operation}' '{escaped_source}' '{escaped_dest}' --config $RCLONE_CONFIG {flags} --log-file $LOG_FILE --log-level INFO
 if ($LASTEXITCODE -ne 0) {{
-    Write-Log "ERROR: Backup failed for {} with exit code $LASTEXITCODE"
+    Write-Log 'ERROR: Backup failed for {escaped_source_display} with exit code $LASTEXITCODE'
     $BackupSuccess = $false
 }}"#,
-                source, destination_with_folder,
-                operation, source, destination_with_folder, flags_str,
-                source
+                escaped_source_display = powershell_escape(source),
+                escaped_dest_display = powershell_escape(&destination_with_folder),
+                operation = powershell_escape(operation),
+                escaped_source = powershell_escape(source),
+                escaped_dest = powershell_escape(&destination_with_folder),
+                flags = flags_str,
             )
         })
         .collect::<Vec<_>>()

@@ -60,7 +60,6 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
   };
 
   const configureAWS = async () => {
-    console.log('Configure AWS button clicked');
     const errors: Record<string, string> = {};
 
     if (!setupData.aws_access_key_id) errors.aws_access_key_id = t('adminSetup.awsAccessKeyIdRequired');
@@ -68,17 +67,11 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
 
     setValidationErrors(errors);
     if (Object.keys(errors).length > 0) {
-      console.log('Validation errors:', errors);
       return;
     }
 
-    console.log('Starting AWS configuration...');
     setIsConfiguring(true);
     try {
-      console.log('Calling configure_aws_credentials with region:', setupData.aws_region);
-      console.log('Access key length:', setupData.aws_access_key_id.length);
-      console.log('Secret key length:', setupData.aws_secret_access_key.length);
-      
       // const result = await invoke<string>('configure_aws_credentials', {
       //   access_key_id: setupData.aws_access_key_id,
       //   secret_access_key: setupData.aws_secret_access_key,
@@ -91,10 +84,8 @@ export default function AdminSetup({ onSetupComplete, onCancel }: AdminSetupProp
         region: setupData.aws_region,
         profileName: 'lavoz-cloud-app-test' // TODO: Pass in user name     
       };
-      console.log(payload);
       const result = await invoke<string>('configure_aws_credentials', payload);
 
-      console.log('AWS credentials configured successfully, result:', result);
       setAwsConfigured(true);
       alert('SUCCESS! Backend response: ' + result);
     } catch (error) {

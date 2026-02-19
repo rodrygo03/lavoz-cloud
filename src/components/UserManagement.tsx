@@ -74,8 +74,6 @@ acl = private`;
   };
 
   const downloadRcloneConfig = async () => {
-    console.log('Download requested:', { hasConfig: !!rcloneConfig, hasEmployee: !!selectedEmployee });
-    
     if (!rcloneConfig || !selectedEmployee) {
       console.error('Cannot download: missing config or employee');
       alert(t('userManagement.configNotGenerated') || 'Please generate the config first');
@@ -83,8 +81,6 @@ acl = private`;
     }
 
     try {
-      console.log('Using Tauri save dialog for config:', rcloneConfig.substring(0, 50) + '...');
-      
       const filename = `rclone-${selectedEmployee.username}.conf`;
       
       // Use Tauri's save dialog
@@ -103,17 +99,13 @@ acl = private`;
           contents: rcloneConfig
         });
         
-        console.log('File saved successfully to:', filePath);
         alert(t('userManagement.downloadSuccess', { filename: filePath }) || `✅ Config saved successfully!\n\nLocation: ${filePath}`);
-      } else {
-        console.log('User cancelled save dialog');
       }
       
     } catch (error) {
       console.error('Download failed:', error);
       
       // Fallback to browser download if Tauri method fails
-      console.log('Falling back to browser download...');
       try {
         const blob = new Blob([rcloneConfig], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);

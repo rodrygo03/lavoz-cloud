@@ -14,7 +14,7 @@ const iam = new IAMClient({ region: process.env.AWS_REGION });
 const cognito = new CognitoIdentityProviderClient({ region: process.env.AWS_REGION });
 
 exports.handler = async (event) => {
-  console.log('Received event:', JSON.stringify(event, null, 2));
+  const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
 
   try {
     // Parse request
@@ -25,7 +25,7 @@ exports.handler = async (event) => {
         statusCode: 400,
         headers: {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
+          'Access-Control-Allow-Origin': ALLOWED_ORIGIN
         },
         body: JSON.stringify({
           success: false,
@@ -34,26 +34,18 @@ exports.handler = async (event) => {
       };
     }
 
-    console.log(`Processing request for user: ${email} (${cognito_user_id})`);
-
     // STEP 1: Validate Cognito token and extract groups (security!)
-    console.log('Validating Cognito token...');
     await validateCognitoToken(id_token, cognito_user_id);
-    console.log('Token validated successfully');
 
     // Extract groups from ID token
     const groups = extractGroupsFromToken(id_token);
     const isAdmin = groups.includes('Admin');
-    console.log('User groups:', groups);
-    console.log('Is admin:', isAdmin);
 
     // STEP 2: Check if IAM user already exists
     const iamUsername = `backup-user-${cognito_user_id}`;
-    console.log(`Checking if IAM user exists: ${iamUsername}`);
 
     try {
-      const existingUser = await iam.send(new GetUserCommand({ UserName: iamUsername }));
-      console.log(`IAM user ${iamUsername} already exists`);
+      await iam.send(new GetUserCommand({ UserName: iamUsername }));
 
       // User exists - return message (can't retrieve existing access keys)
       // In production, you'd store keys in DynamoDB or Secrets Manager
@@ -61,7 +53,7 @@ exports.handler = async (event) => {
         statusCode: 200,
         headers: {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
+          'Access-Control-Allow-Origin': ALLOWED_ORIGIN
         },
         body: JSON.stringify({
           success: false,
@@ -74,11 +66,9 @@ exports.handler = async (event) => {
       if (err.name !== 'NoSuchEntity' && err.name !== 'NoSuchEntityException') {
         throw err;
       }
-      console.log('IAM user does not exist, proceeding to create');
     }
 
     // STEP 3: Create IAM user
-    console.log(`Creating IAM user: ${iamUsername}`);
     await iam.send(new CreateUserCommand({
       UserName: iamUsername,
       Tags: [
@@ -88,16 +78,16 @@ exports.handler = async (event) => {
         { Key: 'CreatedAt', Value: new Date().toISOString() }
       ]
     }));
-    console.log('IAM user created successfully');
 
     // STEP 4: Attach S3 policy (different policies for admin vs regular users)
-    console.log('Attaching S3 policy...');
-    const bucketName = process.env.BUCKET_NAME || 'lavoz-backupapp-demo';
+    const bucketName = process.env.BUCKET_NAME;
+    if (!bucketName) {
+      throw new Error('BUCKET_NAME environment variable is not configured');
+    }
 
     let policy;
     if (isAdmin) {
       // Admin users get access to their own folder AND can see all other admin folders
-      console.log('Creating admin policy for admins/ folder with cross-admin visibility');
       policy = {
         Version: "2012-10-17",
         Statement: [
@@ -134,7 +124,6 @@ exports.handler = async (event) => {
       };
     } else {
       // Regular users get access to their user folder
-      console.log('Creating regular user policy for users/ folder');
       policy = {
         Version: "2012-10-17",
         Statement: [
@@ -176,27 +165,23 @@ exports.handler = async (event) => {
       PolicyName: "BackupS3Access",
       PolicyDocument: JSON.stringify(policy)
     }));
-    console.log('S3 policy attached successfully');
 
     // STEP 5: Create access key
-    console.log('Creating access key...');
     const accessKeyResponse = await iam.send(new CreateAccessKeyCommand({
       UserName: iamUsername
     }));
 
     const accessKey = accessKeyResponse.AccessKey.AccessKeyId;
     const secretKey = accessKeyResponse.AccessKey.SecretAccessKey;
-    console.log(`Access key created: ${accessKey}`);
 
     // STEP 6: Return credentials with appropriate prefix
     const s3Prefix = isAdmin ? `admins/${cognito_user_id}` : `users/${cognito_user_id}`;
-    console.log('Returning credentials with s3_prefix:', s3Prefix);
 
     return {
       statusCode: 200,
       headers: {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
+        'Access-Control-Allow-Origin': ALLOWED_ORIGIN
       },
       body: JSON.stringify({
         success: true,
@@ -210,27 +195,27 @@ exports.handler = async (event) => {
     };
 
   } catch (error) {
-    console.error('Error:', error);
+    console.error('Lambda error for request');
     return {
       statusCode: 500,
       headers: {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
+        'Access-Control-Allow-Origin': ALLOWED_ORIGIN
       },
       body: JSON.stringify({
         success: false,
-        error: error.message,
-        error_type: error.name
+        error: 'An internal error occurred. Please try again later.'
       })
     };
   }
 };
 
-async function validateCognitoToken(idToken, expectedUserId) {
+async function validateCognitoToken(accessToken, expectedUserId) {
   // Verify the token is valid and belongs to the claimed user
+  // Note: CognitoGetUserCommand requires an AccessToken (not an IdToken)
   try {
     const response = await cognito.send(new CognitoGetUserCommand({
-      AccessToken: idToken  // Note: Using AccessToken, not IdToken
+      AccessToken: accessToken
     }));
 
     const userId = response.UserAttributes.find(
@@ -243,8 +228,8 @@ async function validateCognitoToken(idToken, expectedUserId) {
 
     return true;
   } catch (err) {
-    console.error('Token validation failed:', err);
-    throw new Error(`Invalid Cognito token: ${err.message}`);
+    console.error('Token validation failed');
+    throw new Error('Invalid or expired Cognito token');
   }
 }
 
@@ -265,11 +250,10 @@ function extractGroupsFromToken(idToken) {
 
     // Extract cognito:groups claim
     const groups = payload['cognito:groups'] || [];
-    console.log('Extracted groups from token:', groups);
 
     return groups;
   } catch (err) {
-    console.error('Failed to extract groups from token:', err);
+    console.error('Failed to extract groups from token');
     return [];
   }
 }

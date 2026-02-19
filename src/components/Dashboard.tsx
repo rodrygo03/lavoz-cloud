@@ -40,7 +40,6 @@ export default function Dashboard({ profile }: DashboardProps) {
   // Reload data whenever Dashboard component mounts or becomes the active route
   useEffect(() => {
     if (profile) {
-      console.log('Dashboard component mounted/activated, loading data...');
       loadDashboardData();
     }
   }, []); // Run on every mount
@@ -48,7 +47,6 @@ export default function Dashboard({ profile }: DashboardProps) {
   // Also reload when profile changes
   useEffect(() => {
     if (profile) {
-      console.log('Profile changed, reloading dashboard data...');
       loadDashboardData();
     }
   }, [profile]);
@@ -58,34 +56,22 @@ export default function Dashboard({ profile }: DashboardProps) {
 
     try {
       // Sync any scheduled backup logs first
-      console.log('Syncing scheduled backup logs...');
-      const syncedCount = await invoke<number>('sync_scheduled_backup_logs', {
+      await invoke<number>('sync_scheduled_backup_logs', {
         profileId: profile.id
       });
-      console.log('Synced', syncedCount, 'backup operations');
-
       // Load backup logs
-      console.log('Loading backup logs...');
       const operations = await invoke<BackupOperation[]>('get_backup_logs', {
         profileId: profile.id,
         limit: 1
       });
-      console.log('Retrieved operations:', operations);
       if (operations.length > 0) {
-        console.log('Setting last backup to:', operations[0]);
-        console.log('Operation type:', operations[0].operation_type);
-        console.log('Started at:', operations[0].started_at);
-        console.log('Log output preview:', operations[0].log_output.substring(0, 100));
         setLastBackup(operations[0]);
-      } else {
-        console.log('No operations found');
       }
 
       // Load schedule status
       const scheduleStatus = await invoke<Schedule | null>('get_schedule_status', {
         profileId: profile.id
       });
-      console.log('Dashboard loaded schedule:', scheduleStatus);
       setSchedule(scheduleStatus);
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
@@ -95,24 +81,19 @@ export default function Dashboard({ profile }: DashboardProps) {
   const runBackup = async () => {
     if (!profile || isRunning) return;
 
-    console.log(`Starting backup for profile: ${profile.name}`);
     setIsRunning(true);
     setLogs('Starting backup...\n');
 
     try {
-      console.log('Invoking backup_run command');
       const operation = await invoke<BackupOperation>('backup_run', {
         profileId: profile.id,
         dryRun: false
       });
 
-      console.log('Backup operation result:', operation);
       setLastBackup(operation);
       setLogs(operation.log_output);
 
       if (operation.status === 'Completed') {
-        console.log('Backup completed successfully');
-
         // Reload dashboard data to show updated schedule (last_run, next_run)
         await loadDashboardData();
 
@@ -133,13 +114,10 @@ export default function Dashboard({ profile }: DashboardProps) {
   const runPreview = async () => {
     if (!profile) return;
 
-    console.log(`Starting preview for profile: ${profile.name}`);
     try {
-      console.log('Invoking backup_preview command');
       const previewResult = await invoke<BackupPreview>('backup_preview', {
         profileId: profile.id
       });
-      console.log('Preview result:', previewResult);
       setPreview(previewResult);
       setShowPreview(true);
     } catch (error) {

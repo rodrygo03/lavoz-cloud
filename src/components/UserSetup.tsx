@@ -50,10 +50,8 @@ export default function UserSetup({ onSetupComplete, onCancel }: UserSetupProps)
         profileName: `${formData.profile_name}-validation`
       };
       
-      console.log('Validating AWS credentials for user...');
-      const result = await invoke<string>('configure_aws_credentials', payload);
-      
-      console.log('User credentials validated successfully:', result);
+      await invoke<string>('configure_aws_credentials', payload);
+
       setCredentialsValidated(true);
       alert(t('userSetup.credentialsValidated') || '✅ Credentials validated successfully!');
     } catch (error) {
@@ -136,7 +134,6 @@ acl = private
           path: configPath,
           contents: rcloneConfig
         });
-        console.log('✅ Rclone config auto-generated and saved to:', configPath);
       } catch (writeError) {
         console.error('❌ Failed to write rclone config file:', writeError);
         // Continue anyway - backend might handle config differently

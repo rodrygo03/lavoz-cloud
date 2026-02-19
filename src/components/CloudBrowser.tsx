@@ -46,7 +46,6 @@ export default function CloudBrowser({ profile }: CloudBrowserProps) {
     // Check if profile has required configuration
     // Note: prefix can be empty string for admin users (full bucket access)
     if (!profile.bucket || profile.prefix === null || profile.prefix === undefined) {
-      console.log('Profile is missing required configuration (bucket)');
       setFiles([]);
       return;
     }
@@ -72,7 +71,6 @@ export default function CloudBrowser({ profile }: CloudBrowserProps) {
           errorStr.includes('bucket is empty') ||
           errorStr.includes('404') ||
           errorStr.includes('does not exist')) {
-        console.log('Bucket appears to be empty or path does not exist:', error);
         setFiles([]);
       } else {
         // Only show alert for actual errors, not empty buckets
@@ -155,20 +153,11 @@ export default function CloudBrowser({ profile }: CloudBrowserProps) {
         return filePath;
       });
 
-      console.log('Starting restore operation:', {
-        fileCount: filesToRestore.length,
-        target: localTarget,
-        currentPath,
-        files: filesToRestore
-      });
-
       const operation = await invoke<BackupOperation>('restore_files', {
         profileId: profile.id,
         remotePaths: filesToRestore,
         localTarget
       });
-
-      console.log('Restore operation completed:', operation);
 
       // Show detailed success message
       const message = operation.status === 'Completed' 

@@ -4,6 +4,27 @@ use tokio::process::Command;
 
 use crate::models::*;
 
+/// Validate AWS resource names to prevent injection via CLI arguments.
+fn validate_aws_name(name: &str, label: &str) -> Result<(), String> {
+    if name.is_empty() || name.len() > 255 {
+        return Err(format!("{} must be 1-255 characters", label));
+    }
+    // Only allow alphanumeric, hyphens, underscores, dots, and forward slashes
+    let re = regex::Regex::new(r"^[a-zA-Z0-9._/\-]+$").unwrap();
+    if !re.is_match(name) {
+        return Err(format!("{} contains invalid characters: {}", label, name));
+    }
+    Ok(())
+}
+
+fn validate_aws_region(region: &str) -> Result<(), String> {
+    let re = regex::Regex::new(r"^[a-z]{2}-[a-z]+-\d+$").unwrap();
+    if !re.is_match(region) {
+        return Err(format!("Invalid AWS region format: {}", region));
+    }
+    Ok(())
+}
+
 /// Get AWS binary path - uses awscli package from system PATH
 fn get_aws_command() -> Result<String, String> {
     Ok("aws".to_string())
@@ -391,6 +412,15 @@ pub async fn setup_aws_infrastructure(
     profileName: Option<String>
 ) -> Result<AwsConfig, String> {
     let profile = profileName.unwrap_or_else(|| "default".to_string());
+
+    // Validate all inputs before executing any AWS commands
+    validate_aws_name(&bucket_name, "Bucket name")?;
+    validate_aws_region(&region)?;
+    validate_aws_name(&admin_username, "Admin username")?;
+    validate_aws_name(&profile, "Profile name")?;
+    for emp in &employees {
+        validate_aws_name(emp, "Employee name")?;
+    }
 
     // 1. Create bucket if needed
     ensure_bucket_exists(&bucket_name, &region, &profile).await?;

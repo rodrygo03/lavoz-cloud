@@ -465,7 +465,6 @@ pub async fn clear_backup_operations() -> Result<usize, String> {
 
     save_config(&config).await?;
 
-    println!("[DEBUG] Cleared {} backup operations", count);
     Ok(count)
 }
 
@@ -486,10 +485,7 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
     };
     let log_file = logs_dir.join(format!("backup-{}.log", profile_id));
 
-    println!("[DEBUG] sync_scheduled_backup_logs: Looking for log file at: {:?}", log_file);
-
     if !log_file.exists() {
-        println!("[DEBUG] sync_scheduled_backup_logs: Log file does not exist");
         return Ok(0); // No log file, no operations to sync
     }
 
@@ -500,15 +496,10 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
         .filter(|op| op.profile_id == profile_id)
         .collect();
 
-    println!("[DEBUG] sync_scheduled_backup_logs: Found {} existing operations for profile {}",
-        existing_operations.len(), profile_id);
-
     // Try to read log file, handle UTF-8 errors gracefully
     let mut log_content = match fs::read_to_string(&log_file) {
         Ok(content) => content,
-        Err(e) => {
-            println!("[DEBUG] sync_scheduled_backup_logs: Failed to read log file (possibly corrupted): {}", e);
-            println!("[DEBUG] sync_scheduled_backup_logs: Attempting to delete corrupted log file");
+        Err(_) => {
             let _ = fs::remove_file(&log_file);
             return Ok(0); // Skip corrupted log file
         }
@@ -517,13 +508,10 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
     // Remove UTF-8 BOM if present (PowerShell adds this on Windows)
     if log_content.starts_with('\u{FEFF}') {
         log_content = log_content.trim_start_matches('\u{FEFF}').to_string();
-        println!("[DEBUG] sync_scheduled_backup_logs: Removed UTF-8 BOM from log file");
     }
 
     let mut operations_created = 0;
 
-    println!("[DEBUG] sync_scheduled_backup_logs: Log file has {} bytes", log_content.len());
-    
     // Parse the log file for backup operations
     // Support both "Starting backup" and "Starting scheduled backup"
     // Note: \s+ handles variable whitespace (date command uses padding for single-digit days)
@@ -537,16 +525,8 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
     let lines: Vec<&str> = log_content.lines().collect();
     let mut current_operation: Option<crate::models::BackupOperation> = None;
 
-    println!("[DEBUG] sync_scheduled_backup_logs: Processing {} lines", lines.len());
-
-    for (i, line) in lines.iter().enumerate() {
-        // Debug first 10 lines to see format
-        if i < 10 {
-            println!("[DEBUG] Line {}: {}", i, line);
-        }
-
+    for (_i, line) in lines.iter().enumerate() {
         if let Some(caps) = start_regex.captures(line) {
-            println!("[DEBUG] Matched start line: {}", line);
             let timestamp_str = &caps[1];
             let profile_name = &caps[2];
 
@@ -554,12 +534,10 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
             // macOS/Linux: "Wed Aug 20 00:22:05 CDT 2025" (timezone abbreviation)
             // Windows: "Thu Jan 08 19:36:02 +00:00 2026" (timezone offset)
             let time_parts: Vec<&str> = timestamp_str.split_whitespace().collect();
-            println!("[DEBUG] Timestamp parts: {:?}", time_parts);
             if time_parts.len() >= 6 {
                 // Format: ["Wed", "Aug", "20", "00:22:05", "CDT/+00:00", "2025"]
                 // We want: "Aug 20 2025 00:22:05"
                 let date_time_str = format!("{} {} {} {}", time_parts[1], time_parts[2], time_parts[5], time_parts[3]);
-                println!("[DEBUG] Parsing datetime string: {}", date_time_str);
                 if let Ok(start_time) = chrono::NaiveDateTime::parse_from_str(&date_time_str, "%b %d %Y %H:%M:%S") {
                     // Convert from local time to UTC
                     use chrono::Local;
@@ -568,7 +546,6 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
                         .map(|local_dt| local_dt.with_timezone(&Utc))
                         .unwrap_or_else(|| Utc.from_utc_datetime(&start_time));
 
-                    println!("[DEBUG] Found backup start at: {:?}", start_time_utc);
                     current_operation = Some(crate::models::BackupOperation {
                         id: uuid::Uuid::new_v4().to_string(),
                         profile_id: profile_id.clone(),
@@ -581,16 +558,10 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
                         error_message: None,
                         log_output: format!("Scheduled backup started for profile: {}", profile_name),
                     });
-                } else {
-                    println!("[DEBUG] Failed to parse datetime: {}", date_time_str);
                 }
-            } else {
-                println!("[DEBUG] Unexpected timestamp format, expected 6 parts but got {}", time_parts.len());
             }
         } else if let Some(_caps) = complete_regex.captures(line) {
-            println!("[DEBUG] Matched completion line: {}", line);
             if let Some(ref mut op) = current_operation {
-                println!("[DEBUG] Marking operation as completed");
                 op.status = crate::models::OperationStatus::Completed;
                 op.completed_at = Some(Utc::now());
 
@@ -601,13 +572,8 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
                 });
 
                 if !already_saved {
-                    // Save the operation
-                    println!("[DEBUG] Saving completed scheduled backup operation: id={}, started_at={:?}, files={}, bytes={}",
-                        op.id, op.started_at, op.files_transferred, op.bytes_transferred);
                     save_backup_operation(op.clone()).await?;
                     operations_created += 1;
-                } else {
-                    println!("[DEBUG] Operation already saved, skipping duplicate at {:?}", op.started_at);
                 }
 
                 // ALWAYS update the schedule's last_run and next_run, even for duplicates
@@ -652,8 +618,6 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
         if !already_saved {
             save_backup_operation(op).await?;
             operations_created += 1;
-        } else {
-            println!("[DEBUG] Final operation already saved, skipping duplicate at {:?}", started_at);
         }
 
         // ALWAYS update the schedule's last_run and next_run, even for duplicates
@@ -661,7 +625,6 @@ pub async fn sync_scheduled_backup_logs(profile_id: String) -> Result<u32, Strin
         update_schedule_after_run(&profile_id, started_at).await?;
     }
 
-    println!("[DEBUG] sync_scheduled_backup_logs: Created {} new operations", operations_created);
     Ok(operations_created)
 }
 
@@ -687,8 +650,6 @@ pub async fn update_schedule_after_backup(profile_id: &str, backup_started_at: c
                 profile.updated_at = Utc::now();
                 updated = true;
 
-                println!("[DEBUG] Updated schedule for profile {}: last_run={:?}, next_run={:?}",
-                    profile_id, schedule.last_run, schedule.next_run);
             }
         }
     }

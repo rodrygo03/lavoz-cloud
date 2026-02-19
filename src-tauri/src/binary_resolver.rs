@@ -10,8 +10,6 @@ pub fn get_rclone_binary_path() -> Result<PathBuf, String> {
         if let Some(exe_dir) = exe_path.parent() {
             // Try ../binaries/rclone-{arch}-{platform} pattern
             let arch = std::env::consts::ARCH;
-            let os = std::env::consts::OS;
-            println!("[DEBUG] Detected OS: {}, ARCH: {}", os, arch);
 
             #[cfg(target_os = "macos")]
             let dev_binary_name = format!("rclone-{}-apple-darwin", arch);
@@ -22,8 +20,6 @@ pub fn get_rclone_binary_path() -> Result<PathBuf, String> {
             #[cfg(target_os = "linux")]
             let dev_binary_name = format!("rclone-{}-unknown-linux-gnu", arch);
 
-            println!("[DEBUG] Looking for binary named: {}", dev_binary_name);
-
             // Look for binaries in project structure
             let possible_paths = vec![
                 exe_dir.join("../binaries").join(&dev_binary_name),
@@ -33,26 +29,15 @@ pub fn get_rclone_binary_path() -> Result<PathBuf, String> {
             ];
 
             for path in possible_paths {
-                println!("[DEBUG] Checking path: {:?}", path);
-
-                // First check if the path exists
                 if path.exists() {
-                    println!("[DEBUG] Path exists!");
-
-                    // Try to canonicalize for a clean absolute path
                     match path.canonicalize() {
                         Ok(canonical) => {
-                            println!("[DEBUG] Canonicalized to: {:?}", canonical);
                             return Ok(canonical);
                         }
-                        Err(e) => {
-                            // If canonicalize fails but file exists, use the path as-is
-                            println!("[DEBUG] Failed to canonicalize ({}), using path as-is: {:?}", e, path);
+                        Err(_) => {
                             return Ok(path);
                         }
                     }
-                } else {
-                    println!("[DEBUG] Path does not exist: {:?}", path);
                 }
             }
         }
@@ -68,9 +53,7 @@ pub fn get_rclone_binary_path() -> Result<PathBuf, String> {
             #[cfg(not(target_os = "windows"))]
             let bundled_path = bin_dir.join("rclone");
 
-            println!("[DEBUG] Checking for bundled rclone at: {:?}", bundled_path);
             if bundled_path.exists() {
-                println!("[DEBUG] Found bundled rclone at: {:?}", bundled_path);
                 return Ok(bundled_path);
             }
         }
