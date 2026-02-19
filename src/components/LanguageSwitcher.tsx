@@ -1,5 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import { FormGroup } from './ui';
 
 const LanguageSwitcher: React.FC = () => {
   const { i18n, t } = useTranslation();
@@ -9,8 +10,7 @@ const LanguageSwitcher: React.FC = () => {
   };
 
   return (
-    <div className="form-group">
-      <label htmlFor="language-select">{t('settings.language')}</label>
+    <FormGroup label={t('settings.language')} htmlFor="language-select">
       <select
         id="language-select"
         value={i18n.language}
@@ -20,7 +20,7 @@ const LanguageSwitcher: React.FC = () => {
         <option value="en">English</option>
         <option value="es">Español</option>
       </select>
-    </div>
+    </FormGroup>
   );
 };
 

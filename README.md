@@ -187,6 +187,7 @@ lavoz-cloud/
 
 ## 📚 Documentation
 
+- **[docs/STORYBOOK_UI_GUIDE.md](docs/STORYBOOK_UI_GUIDE.md)** - Storybook setup, UI primitives reference, and prototyping workflows
 - **[DEPLOYMENT_COMPLETE.md](DEPLOYMENT_COMPLETE.md)** - Current deployment status and what's working
 - **[NEXT_STEPS.md](NEXT_STEPS.md)** - Development roadmap and future features
 - **[SCHEDULED_BACKUPS_SETUP.md](SCHEDULED_BACKUPS_SETUP.md)** - Complete Lambda deployment guide
