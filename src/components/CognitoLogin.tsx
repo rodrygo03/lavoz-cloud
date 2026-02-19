@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { UserSession } from '../types';
 import * as cognitoAuth from '../services/cognitoAuth';
-import CognitoLoginView, { type LoginScreen } from './CognitoLoginView';
+import CognitoLoginViewAlt2, { type LoginScreen } from '../prototypes/CognitoLoginViewAlt2';
 
 interface CognitoLoginProps {
   onLoginSuccess: (session: UserSession) => void;
@@ -176,8 +176,24 @@ export default function CognitoLogin({ onLoginSuccess }: CognitoLoginProps) {
     </div>
   );
 
+  const logo = (
+    <img
+      src={`${import.meta.env.BASE_URL}cloud-2.png`}
+      alt="Cloud Backup"
+      style={{
+        width: 96,
+        height: 96,
+        objectFit: 'contain',
+        transform: 'scale(2.6667)',
+        transformOrigin: 'center',
+        display: 'block',
+        margin: '0 auto',
+      }}
+    />
+  );
+
   return (
-    <CognitoLoginView
+    <CognitoLoginViewAlt2
       screen={screen}
       email={email}
       onEmailChange={setEmail}
@@ -203,6 +219,7 @@ export default function CognitoLogin({ onLoginSuccess }: CognitoLoginProps) {
       onForgotPassword={() => {
         alert('Password reset will be handled through AWS Cognito. Contact your administrator for assistance.');
       }}
+      logo={logo}
       languageToggle={languageToggle}
     />
   );

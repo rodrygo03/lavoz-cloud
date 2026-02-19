@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Profile, Schedule } from '../types';
-import SettingsView from './SettingsView';
+import SettingsViewAlt from '../prototypes/SettingsViewAlt';
 
 interface SettingsProps {
   profile: Profile | null;
@@ -16,7 +16,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
   const location = useLocation();
   const [editedProfile, setEditedProfile] = useState<Profile | null>(null);
   const [schedule, setSchedule] = useState<Schedule | null>(null);
-  const [activeTab, setActiveTab] = useState<'general' | 'sources' | 'advanced' | 'schedule'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'sources' | 'schedule'>('general');
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [hasShownScheduleAlert, setHasShownScheduleAlert] = useState(false);
@@ -34,8 +34,8 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
     // Check URL parameters to set the active tab
     const searchParams = new URLSearchParams(location.search);
     const tab = searchParams.get('tab');
-    if (tab && ['general', 'sources', 'advanced', 'schedule'].includes(tab)) {
-      setActiveTab(tab as 'general' | 'sources' | 'advanced' | 'schedule');
+    if (tab && ['general', 'sources', 'schedule'].includes(tab)) {
+      setActiveTab(tab as 'general' | 'sources' | 'schedule');
     }
   }, [location.search]);
 
@@ -100,24 +100,7 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
     handleProfileChange('sources', newSources);
   };
 
-  const handleFlagChange = (index: number, value: string) => {
-    if (!editedProfile) return;
-
-    const newFlags = [...editedProfile.rclone_flags];
-    newFlags[index] = value;
-    handleProfileChange('rclone_flags', newFlags);
-  };
-
-  const addFlag = () => {
-    if (!editedProfile) return;
-    handleProfileChange('rclone_flags', [...editedProfile.rclone_flags, '']);
-  };
-
-  const removeFlag = (index: number) => {
-    if (!editedProfile) return;
-    const newFlags = editedProfile.rclone_flags.filter((_, i) => i !== index);
-    handleProfileChange('rclone_flags', newFlags);
-  };
+  // Flag handlers removed - not used by SettingsViewAlt
 
   const saveProfile = async () => {
     if (!editedProfile) return;
@@ -200,46 +183,10 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
     }
   };
 
-  const openFileDialog = async (callback: (path: string) => void, title: string = 'Select File') => {
-    try {
-      const selected = await open({
-        directory: false,
-        multiple: false,
-        title: title
-      });
-
-      if (selected && typeof selected === 'string') {
-        callback(selected);
-      }
-    } catch (error) {
-      console.error('Failed to open file dialog:', error);
-    }
-  };
-
-
-  const autoConfigureRclone = async () => {
-    if (!profile) return;
-
-    try {
-      console.log('Starting complete auto-setup for profile:', profile.id);
-      const updatedProfile = await invoke<Profile>('auto_setup_rclone_complete', {
-        profileId: profile.id
-      });
-
-      console.log('Complete auto-setup successful, updated profile:', updatedProfile);
-      setEditedProfile(updatedProfile);
-      setHasChanges(true);
-      console.log('Rclone fully configured successfully!');
-      console.log('- Binary:', updatedProfile.rclone_bin);
-      console.log('- Config:', updatedProfile.rclone_conf);
-      console.log('- Remote:', updatedProfile.remote);
-    } catch (error) {
-      console.error('Failed to auto-setup rclone:', error);
-    }
-  };
+  // openFileDialog and autoConfigureRclone removed - not used by SettingsViewAlt
 
   return (
-    <SettingsView
+    <SettingsViewAlt
       profile={profile}
       editedProfile={editedProfile}
       schedule={schedule}
@@ -252,18 +199,10 @@ export default function Settings({ profile, onProfileUpdated }: SettingsProps) {
       onSourceChange={handleSourceChange}
       onAddSource={addSource}
       onRemoveSource={removeSource}
-      onFlagChange={handleFlagChange}
-      onAddFlag={addFlag}
-      onRemoveFlag={removeFlag}
       onSaveProfile={saveProfile}
       onSaveSchedule={() => saveSchedule(true)}
       onScheduleChange={setSchedule}
       onOpenFolderDialog={openFolderDialog}
-      onOpenFileDialog={openFileDialog}
-      onAutoConfigureRclone={() => {
-        console.log('Auto-setup button clicked!');
-        autoConfigureRclone();
-      }}
       t={t}
     />
   );

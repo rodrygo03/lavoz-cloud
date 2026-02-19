@@ -5,11 +5,11 @@ import {
   Monitor,
   Cloud,
   Settings,
-  Users,
+  // Users,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { Profile, UserSession } from '../types';
-import SidebarView from './SidebarView';
+import SideBarViewAlt from '../prototypes/SideBarViewAlt';
 
 interface SidebarProps {
   profiles: Profile[];
@@ -53,16 +53,17 @@ export default function Sidebar({
     { path: '/settings', label: t('sidebar.settings'), icon: Settings },
   ];
 
-  const adminNavItems = [
-    { path: '/user-management', label: t('sidebar.userManagement'), icon: Users },
-  ];
+  // const adminNavItems = [
+  //   { path: '/user-management', label: t('sidebar.userManagement'), icon: Users },
+  // ];
 
-  const navItems = activeProfile?.profile_type === 'Admin'
-    ? [...baseNavItems, ...adminNavItems]
-    : baseNavItems;
+  // const navItems = activeProfile?.profile_type === 'Admin'
+  //   ? [...baseNavItems, ...adminNavItems]
+  //   : baseNavItems;
+  const navItems = baseNavItems;
 
   return (
-    <SidebarView
+    <SideBarViewAlt
       profiles={profiles}
       activeProfile={activeProfile}
       userSession={userSession}
