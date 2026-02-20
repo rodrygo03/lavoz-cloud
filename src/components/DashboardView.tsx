@@ -8,7 +8,10 @@ import {
   Calendar,
   Activity,
   Settings as SettingsIcon,
-  Loader2
+  Loader2,
+  Info,
+  RefreshCw,
+  XCircle,
 } from 'lucide-react';
 import { Profile, BackupOperation, BackupPreview, Schedule } from '../types';
 import {
@@ -49,6 +52,26 @@ export interface DashboardViewProps {
   formatBytes: (bytes: number) => string;
   formatDate: (dateString: string) => string;
   formatTime12Hour: (time24: string) => string;
+}
+
+type LogState = 'completed' | 'nothing-new' | 'failed' | 'running';
+
+function getLogState(isRunning: boolean, lastBackup: BackupOperation | null): LogState | null {
+  if (isRunning) return 'running';
+  if (!lastBackup) return null;
+  if (lastBackup.status === 'Failed') return 'failed';
+  if (lastBackup.files_transferred === 0) return 'nothing-new';
+  return 'completed';
+}
+
+function classifyLine(line: string): string {
+  if (/ERROR/i.test(line)) return 'log-line--error';
+  if (/NOTICE|WARNING/i.test(line)) return 'log-line--warning';
+  if (/Copied|Moved|Updated/i.test(line)) return 'log-line--success';
+  if (/Deleted/i.test(line)) return 'log-line--deleted';
+  if (/^(Transferred|Checks|Files|Elapsed time|Errors):/i.test(line.trim())) return 'log-line--stat';
+  if (/INFO/i.test(line)) return 'log-line--info';
+  return 'log-line--default';
 }
 
 export default function DashboardView({
@@ -255,15 +278,57 @@ export default function DashboardView({
             }
           />
           <CardContent>
-            {logs || lastBackup?.log_output ? (
-              <pre className="logs-content">{logs || lastBackup?.log_output}</pre>
-            ) : (
-              <EmptyState
-                size="small"
-                icon={<FileText size={24} />}
-                title={t('dashboard.noLogsAvailable')}
-              />
-            )}
+            {(() => {
+              const logText = logs || lastBackup?.log_output;
+              const state = getLogState(isRunning, lastBackup);
+
+              if (!logText && !state) {
+                return (
+                  <EmptyState
+                    size="small"
+                    icon={<FileText size={24} />}
+                    title={t('dashboard.noLogsAvailable')}
+                  />
+                );
+              }
+
+              const headerIcon = {
+                completed: <CheckCircle size={16} />,
+                'nothing-new': <Info size={16} />,
+                failed: <XCircle size={16} />,
+                running: <RefreshCw size={16} className="spinning" />,
+              }[state ?? 'nothing-new'];
+
+              const headerLabel = {
+                completed: lastBackup
+                  ? `${t('dashboard.statusCompleted')} · ${lastBackup.files_transferred} ${t('dashboard.files')}`
+                  : t('dashboard.statusCompleted'),
+                'nothing-new': t('dashboard.statusCompleted'),
+                failed: lastBackup?.error_message ?? t('dashboard.statusFailed'),
+                running: t('dashboard.runningBackup'),
+              }[state ?? 'nothing-new'];
+
+              return (
+                <div className="log-viewer">
+                  {state && (
+                    <div className={`log-viewer-header log-viewer-header--${state}`}>
+                      {headerIcon}
+                      <span className="log-viewer-label">{headerLabel}</span>
+                      {state === 'completed' && lastBackup && lastBackup.bytes_transferred > 0 && (
+                        <span className="log-viewer-stat">{formatBytes(lastBackup.bytes_transferred)}</span>
+                      )}
+                    </div>
+                  )}
+                  {logText && (
+                    <div className="log-viewer-body">
+                      {logText.split('\n').map((line, i) => (
+                        <div key={i} className={`log-line ${classifyLine(line)}`}>{line || '\u00A0'}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
       </div>

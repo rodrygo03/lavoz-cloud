@@ -124,7 +124,7 @@ body {
 }
 
 .sidebar-header {
-  padding: 1.5rem;
+  padding: 0.25rem 0.50rem;
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -132,8 +132,15 @@ body {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  font-weight: 600;
+  font-weight: 700;
   font-size: 1.125rem;
+}
+
+.sidebar-logo {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .sidebar-nav {
@@ -867,6 +874,110 @@ input.error {
   overflow: auto;
   white-space: pre-wrap;
   color: var(--text-secondary);
+}
+
+/* Log Viewer */
+.log-viewer {
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  font-family: monospace;
+  font-size: 0.75rem;
+}
+
+.log-viewer-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  border-left: 3px solid transparent;
+  background: var(--bg-secondary);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.log-viewer-header--completed {
+  border-left-color: #22c55e;
+  color: #22c55e;
+}
+
+.log-viewer-header--nothing-new {
+  border-left-color: #3b82f6;
+  color: #3b82f6;
+}
+
+.log-viewer-header--failed {
+  border-left-color: #ef4444;
+  color: #ef4444;
+}
+
+.log-viewer-header--running {
+  border-left-color: #f59e0b;
+  color: #f59e0b;
+}
+
+@keyframes pulse-icon {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.log-viewer-header--running svg {
+  animation: spin 1.2s linear infinite;
+}
+
+.log-viewer-label {
+  flex: 1;
+}
+
+.log-viewer-stat {
+  margin-left: auto;
+  font-size: 0.7rem;
+  opacity: 0.75;
+}
+
+.log-viewer-body {
+  background: var(--bg-secondary);
+  max-height: 280px;
+  overflow: auto;
+  padding: 0.625rem 0.875rem;
+  white-space: pre-wrap;
+  border-top: 1px solid var(--border);
+}
+
+.log-line {
+  display: block;
+  padding: 0 2px;
+  line-height: 1.55;
+}
+
+.log-line--error {
+  color: #ef4444;
+}
+
+.log-line--warning {
+  color: #f59e0b;
+}
+
+.log-line--success {
+  color: #22c55e;
+}
+
+.log-line--deleted {
+  color: #f97316;
+}
+
+.log-line--stat {
+  color: #3b82f6;
+  font-weight: 600;
+}
+
+.log-line--info {
+  color: var(--text-secondary);
+}
+
+.log-line--default {
+  color: var(--text-muted, var(--text-secondary));
+  opacity: 0.65;
 }
 
 /* Cloud Browser */

@@ -33,7 +33,7 @@ export default function SideBarViewAlt({
     <div className="sidebar">
       <div className="sidebar-header">
         <div className="sidebar-title">
-          {logo}
+          <img src="/cloud-2.png" alt="" className="sidebar-logo" />
           <span>Cloud Backup</span>
         </div>
       </div>
