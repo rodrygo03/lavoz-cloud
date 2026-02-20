@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { Profile, Schedule, ScheduleFrequency, BackupMode } from '../types';
 import LanguageSwitcher from '../components/LanguageSwitcher';
-import { Button, IconButton, FormGroup, FormRow, FileInput, EmptyState } from '../components/ui';
+import { Button, IconButton, FormGroup, EmptyState } from '../components/ui';
 
 export interface SettingsViewAltProps {
   profile: Profile | null;

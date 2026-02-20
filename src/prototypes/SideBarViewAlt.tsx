@@ -27,7 +27,6 @@ export default function SideBarViewAlt({
   onToggleProfileMenu,
   onLogout,
   t,
-  logo,
 }: SideBarViewAltProps) {
   return (
     <div className="sidebar">
